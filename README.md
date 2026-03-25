@@ -1,0 +1,2 @@
+# Autoclicker
+Cross-platform Autoclicker
