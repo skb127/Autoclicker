@@ -1,0 +1,19 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Autoclicker.ViewModels"
+             x:Class="Autoclicker.Views.MainView"
+             x:DataType="vm:MainViewModel">
+    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
+        <TextBlock Text="Multiplatform Autoclicker" FontSize="24" HorizontalAlignment="Center"/>
+        
+        <Button Content="1. Select Coordinate" 
+                Command="{Binding CaptureCoordinateCommand}" 
+                HorizontalAlignment="Center"/>
+                
+        <TextBlock Text="{Binding CoordinatesText}" HorizontalAlignment="Center"/>
+        
+        <Button Content="2. Start Autoclick" 
+                Command="{Binding StartAutoclickCommand}" 
+                HorizontalAlignment="Center"/>
+    </StackPanel>
+</UserControl>
