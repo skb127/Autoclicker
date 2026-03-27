@@ -1,7 +1,12 @@
+using System.Threading.Tasks;
+
 namespace Autoclicker.Services;
 
 public interface IInputSimulator
 {
-    // Method to simulate a mouse click at a specific position
+    // Ask for user permission and open the session
+    Task InitializeAsync();
+        
+    // Execute the real physical click
     void SimulateClick(int x, int y);
 }

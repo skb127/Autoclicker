@@ -36,8 +36,12 @@ public partial class MainViewModel : ViewModelBase
     
     // Example using CommunityToolkit.Mvvm to generate the UI command
     [RelayCommand]
-    private void StartAutoclick()
+    private async Task StartAutoclick()
     {
+        // 1. Ask the system for permission (it will only do this the first time)
+        await _inputSimulator.InitializeAsync();
+    
+        // 2. Trigger the click
         _inputSimulator.SimulateClick(100, 200);
     }
     

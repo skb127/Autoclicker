@@ -21,7 +21,9 @@ public class ServiceLocator
         // 2. Register native implementations depending on the OS
         if (OperatingSystem.IsWindows())
         {
-            services.AddSingleton<ICoordinatePicker, Win32CoordinatePicker>();
+            services.AddSingleton<ICoordinatePicker, Autoclicker.Platforms.Windows.Win32CoordinatePicker>();
+            services.AddSingleton<IInputSimulator, Autoclicker.Platforms.Windows.Win32InputSimulator>();
+            // The HotkeyListener will be added in the next phase
         }
         else if (OperatingSystem.IsLinux())
         {
