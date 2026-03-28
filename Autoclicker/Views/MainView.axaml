@@ -8,12 +8,19 @@
         
         <Button Content="1. Select Coordinate" 
                 Command="{Binding CaptureCoordinateCommand}" 
+                IsEnabled="{Binding !IsClicking}"
                 HorizontalAlignment="Center"/>
                 
         <TextBlock Text="{Binding CoordinatesText}" HorizontalAlignment="Center"/>
         
-        <Button Content="2. Start Autoclick" 
+        <Button Content="2. Start Autoclick (50ms)" 
                 Command="{Binding StartAutoclickCommand}" 
+                IsEnabled="{Binding !IsClicking}"
+                HorizontalAlignment="Center"/>
+                
+        <Button Content="Stop (Or press ESCAPE)" 
+                Command="{Binding StopAutoclickCommand}" 
+                IsEnabled="{Binding IsClicking}"
                 HorizontalAlignment="Center"/>
     </StackPanel>
 </UserControl>

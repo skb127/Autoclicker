@@ -1,4 +1,6 @@
-﻿using System.Threading.Tasks;
+﻿using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
 using Autoclicker.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -10,9 +12,16 @@ public partial class MainViewModel : ViewModelBase
     private readonly IInputSimulator _inputSimulator;
     private readonly ICoordinatePicker _coordinatePicker;
     private readonly IHotkeyListener _hotkeyListener;
-    
-    [ObservableProperty]
+
+    [ObservableProperty] 
     private string _coordinatesText = "Selected coordinate: X: 0, Y: 0";
+
+    // This property will control if the loop is on or off
+    [ObservableProperty]
+    private bool _isClicking;
+    
+    private int _targetX;
+    private int _targetY;
 
     // DI container will automatically inject native implementations here
     public MainViewModel(
@@ -23,31 +32,68 @@ public partial class MainViewModel : ViewModelBase
         _inputSimulator = inputSimulator;
         _coordinatePicker = coordinatePicker;
         _hotkeyListener = hotkeyListener;
+        
+        // We connect our native emergency key to the method that stops the loop
+        _hotkeyListener.OnStopRequested += StopAutoclick;
     }
 
+    [RelayCommand]
     private async Task CaptureCoordinateAsync()
     {
-        // Call our interface. In Windows it will open the transparent window.
         var coordinate = await _coordinatePicker.PickCoordinateAsync();
-    
-        // Update the UI text
-        CoordinatesText = $"Selected coordinate: X: {coordinate.X}, Y: {coordinate.Y}";
+        _targetX = coordinate.X;
+        _targetY = coordinate.Y;
+        CoordinatesText = $"Selected coordinate: X: {_targetX}, Y: {_targetY}";
     }
     
-    // Example using CommunityToolkit.Mvvm to generate the UI command
     [RelayCommand]
     private async Task StartAutoclick()
     {
-        // 1. Ask the system for permission (it will only do this the first time)
+        if (IsClicking) return;
+
+        // 1. Request OS permissions if necessary (Linux Wayland)
         await _inputSimulator.InitializeAsync();
-    
-        // 2. Trigger the click
-        _inputSimulator.SimulateClick(100, 200);
+            
+        // 2. Start listening for the emergency key (Escape on Windows)
+        _hotkeyListener.StartListening();
+
+        IsClicking = true;
+
+        // 3. We start the loop in a dedicated thread with MAXIMUM priority
+        Thread clickThread = new Thread(ClickLoop)
+        {
+            IsBackground = true,
+            Priority = ThreadPriority.Highest
+        };
+        clickThread.Start();
     }
     
     [RelayCommand]
-    private void CaptureCoordinate()
+    private void StopAutoclick()
     {
-        // Here we will add logic to capture coordinates later
+        IsClicking = false;
+        _hotkeyListener.StopListening();
+    }
+    
+    private void ClickLoop()
+    {
+        // High precision timer integrated in .NET
+        var watch = Stopwatch.StartNew();
+            
+        // Speed: 1 click every 50 milliseconds (20 clicks per second)
+        const int intervaloMs = 50; 
+
+        while (IsClicking)
+        {
+            _inputSimulator.SimulateClick(_targetX, _targetY);
+
+            // Active wait (SpinWait) to avoid operating system bottlenecks
+            long ticksEsperados = watch.ElapsedTicks + (intervaloMs * Stopwatch.Frequency / 1000);
+            while (watch.ElapsedTicks < ticksEsperados)
+            {
+                Thread.SpinWait(10);
+            }
+        }
+        watch.Stop();
     }
 }
