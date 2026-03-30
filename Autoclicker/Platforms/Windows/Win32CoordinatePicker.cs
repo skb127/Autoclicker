@@ -30,7 +30,7 @@ public sealed class Win32CoordinatePicker : ICoordinatePicker
         {
             // Get the global monitor position in pixels
             var point = e.GetPosition(overlayWindow);
-            PixelPoint screenPoint = overlayWindow.PointToScreen(point);
+            var screenPoint = overlayWindow.PointToScreen(point);
                 
             // Return the result to the ViewModel
             tcs.TrySetResult((screenPoint.X, screenPoint.Y));

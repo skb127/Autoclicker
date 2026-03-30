@@ -5,7 +5,7 @@ using Autoclicker.Services;
 
 namespace Autoclicker.Platforms.Windows;
 
-public class Win32InputSimulator: IInputSimulator
+public sealed partial class Win32InputSimulator: IInputSimulator
 {
     // --- Windows API definitions (P/Invoke) ---
     [Flags]
@@ -35,11 +35,11 @@ public class Win32InputSimulator: IInputSimulator
         public MouseInput mi;
     }
    
-    [DllImport( "user32.dll")]
-    private static extern uint SendInput(uint nInputs, Input[] pInputs, int cbSize);
+    [LibraryImport( "user32.dll")]
+    private static partial uint SendInput(uint nInputs, Input[] pInputs, int cbSize);
     
-    [DllImport( "user32.dll")]
-    private static extern int GetSystemMetrics(int smIndex);
+    [LibraryImport( "user32.dll")]
+    private static partial int GetSystemMetrics(int smIndex);
 
     // --- Our Interface Implementation ---
 

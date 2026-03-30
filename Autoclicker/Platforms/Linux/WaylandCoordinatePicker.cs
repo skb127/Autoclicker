@@ -22,7 +22,7 @@ public interface IRequest : IDBusObject
     Task<IDisposable> WatchResponseAsync(Action<(uint response, IDictionary<string, object> results)> handler, Action<Exception>? onError = null);
 }
 
-public class WaylandCoordinatePicker : ICoordinatePicker
+public sealed class WaylandCoordinatePicker : ICoordinatePicker
 {
     public async Task<(int X, int Y)> PickCoordinateAsync()
     {

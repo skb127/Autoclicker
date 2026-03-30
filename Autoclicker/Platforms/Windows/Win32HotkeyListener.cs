@@ -6,10 +6,10 @@ using Autoclicker.Services;
 
 namespace Autoclicker.Platforms.Windows;
 
-public class Win32HotkeyListener : IHotkeyListener
+public sealed partial class Win32HotkeyListener : IHotkeyListener
 {
-    [DllImport("user32.dll")]
-    private static extern short GetAsyncKeyState(int vKey);
+    [LibraryImport("user32.dll")]
+    private static partial short GetAsyncKeyState(int vKey);
 
     // The hexadecimal code for the ESCAPE key
     private const int VkEscape = 0x1B; 
@@ -30,6 +30,9 @@ public class Win32HotkeyListener : IHotkeyListener
     public void StopListening()
     {
         _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = null;
+        
         Console.WriteLine(" Stopped listening to the keyboard.");
     }
 

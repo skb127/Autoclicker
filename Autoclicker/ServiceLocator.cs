@@ -7,7 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Autoclicker;
 
-public class ServiceLocator
+public sealed class ServiceLocator
 {
     public static IServiceProvider? Provider { get; private set; }
     
@@ -27,9 +27,23 @@ public class ServiceLocator
         }
         else if (OperatingSystem.IsLinux())
         {
-            services.AddSingleton<ICoordinatePicker, WaylandCoordinatePicker>();
-            services.AddSingleton<IInputSimulator, WaylandInputSimulator>();
-            services.AddSingleton<IHotkeyListener, WaylandHotkeyListener>();
+            // We read the standard Linux environment variable to detect the graphics server
+            var sessionType = Environment.GetEnvironmentVariable("XDG_SESSION_TYPE")?.ToLower()?? "";
+
+            if (sessionType == "wayland")
+            {
+                // If the user is using Wayland, we inject the secure D-Bus-based implementations (The implementation is not yet complete, this may be addressed in the future)
+                services.AddSingleton<ICoordinatePicker, WaylandCoordinatePicker>();
+                services.AddSingleton<IInputSimulator, WaylandInputSimulator>();
+                services.AddSingleton<IHotkeyListener, WaylandHotkeyListener>();
+            }
+            else 
+            {
+                // If it's X11 (or any other fallback), we know the transparent window works perfectly
+                services.AddSingleton<ICoordinatePicker, Win32CoordinatePicker>();
+                services.AddSingleton<IInputSimulator, X11InputSimulator>();
+                services.AddSingleton<IHotkeyListener, X11HotkeyListener>();
+            }
         }
 
         Provider = services.BuildServiceProvider();

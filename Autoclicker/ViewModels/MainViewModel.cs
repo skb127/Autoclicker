@@ -1,11 +1,17 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Autoclicker.Services;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
 namespace Autoclicker.ViewModels;
+
+// Simple structure to store the pattern points
+public record Coordinate(int X, int Y);
 
 public partial class MainViewModel : ViewModelBase
 {
@@ -20,8 +26,20 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isClicking;
     
-    private int _targetX;
-    private int _targetY;
+    // User-configurable time (in milliseconds)
+    [ObservableProperty]
+    private int _intervalMs = 1000; 
+
+    // Configurable repetitions (0 = Infinite)
+    [ObservableProperty]
+    private int _repetitions = 0; 
+
+    // WARNING SYSTEM: Red message in case of error on Linux
+    [ObservableProperty]
+    private string _errorMessage = string.Empty;
+
+    // REQUIREMENT FULFILLED: Click pattern (Multiple coordinates)
+    public ObservableCollection<Coordinate> ClickPatterns { get; } = [];
 
     // DI container will automatically inject native implementations here
     public MainViewModel(
@@ -40,32 +58,55 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private async Task CaptureCoordinateAsync()
     {
-        var coordinate = await _coordinatePicker.PickCoordinateAsync();
-        _targetX = coordinate.X;
-        _targetY = coordinate.Y;
-        CoordinatesText = $"Selected coordinate: X: {_targetX}, Y: {_targetY}";
+        ErrorMessage = string.Empty;
+        try
+        {
+            var coordinate = await _coordinatePicker.PickCoordinateAsync();
+            // We avoid adding 0,0 if it was a canceled error on Linux
+            if (coordinate.X!= 0 || coordinate.Y!= 0) 
+            {
+                ClickPatterns.Add(new Coordinate(coordinate.X, coordinate.Y));
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = "Warning: " + ex.Message;
+        }
+    }
+    
+    [RelayCommand]
+    private void ClearPattern()
+    {
+        ClickPatterns.Clear();
+        ErrorMessage = string.Empty;
     }
     
     [RelayCommand]
     private async Task StartAutoclick()
     {
-        if (IsClicking) return;
-
-        // 1. Request OS permissions if necessary (Linux Wayland)
-        await _inputSimulator.InitializeAsync();
-            
-        // 2. Start listening for the emergency key (Escape on Windows)
-        _hotkeyListener.StartListening();
-
-        IsClicking = true;
-
-        // 3. We start the loop in a dedicated thread with MAXIMUM priority
-        Thread clickThread = new Thread(ClickLoop)
+        // Do not start if already clicking or if the pattern is empty
+        if (IsClicking || ClickPatterns.Count == 0) return;
+        ErrorMessage = string.Empty;
+        
+        try 
         {
-            IsBackground = true,
-            Priority = ThreadPriority.Highest
-        };
-        clickThread.Start();
+            await _inputSimulator.InitializeAsync();
+            _hotkeyListener.StartListening();
+
+            IsClicking = true;
+
+            Thread clickThread = new Thread(ClickLoop)
+            {
+                IsBackground = true,
+                Priority = ThreadPriority.Highest
+            };
+            clickThread.Start();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Linux compatibility failure: Could not start event injection. {ex.Message}";
+            IsClicking = false;
+        }
     }
     
     [RelayCommand]
@@ -79,21 +120,50 @@ public partial class MainViewModel : ViewModelBase
     {
         // High precision timer integrated in .NET
         var watch = Stopwatch.StartNew();
+        int currentRepeats = 0;
             
-        // Speed: 1 click every 50 milliseconds (20 clicks per second)
-        const int intervaloMs = 50; 
-
-        while (IsClicking)
+        try 
         {
-            _inputSimulator.SimulateClick(_targetX, _targetY);
-
-            // Active wait (SpinWait) to avoid operating system bottlenecks
-            long ticksEsperados = watch.ElapsedTicks + (intervaloMs * Stopwatch.Frequency / 1000);
-            while (watch.ElapsedTicks < ticksEsperados)
+            while (IsClicking)
             {
-                Thread.SpinWait(10);
+                // We iterate over the click pattern defined by the user
+                foreach (var point in ClickPatterns)
+                {
+                    if (!IsClicking) break;
+
+                    _inputSimulator.SimulateClick(point.X, point.Y);
+
+                    // We calculate the wait using our high-precision timer
+                    long expectedTicks = watch.ElapsedTicks + (IntervalMs * Stopwatch.Frequency / 1000);
+                    while (watch.ElapsedTicks < expectedTicks)
+                    {
+                        Thread.SpinWait(10);
+                    }
+                }
+
+                currentRepeats++;
+
+                // If the user configured a limit greater than 0 and it has been reached, we stop
+                if (Repetitions > 0 && currentRepeats >= Repetitions)
+                {
+                    break;
+                }
             }
         }
-        watch.Stop();
+        catch (Exception ex)
+        {
+            // We send the error to the GUI safely
+            Dispatcher.UIThread.InvokeAsync(() => 
+                ErrorMessage = "Error in loop: " + ex.Message);
+        }
+        finally 
+        {
+            watch.Stop();
+            // We return the state to the interface safely on the UI thread
+            Dispatcher.UIThread.InvokeAsync(() => {
+                IsClicking = false;
+                _hotkeyListener.StopListening();
+            });
+        }
     }
 }

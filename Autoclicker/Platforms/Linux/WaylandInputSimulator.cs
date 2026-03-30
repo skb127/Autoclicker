@@ -19,7 +19,7 @@ public interface IRemoteDesktopPortal : IDBusObject
     Task NotifyPointerButtonAsync(ObjectPath sessionHandle, IDictionary<string, object> options, int button, uint state);
 }
 
-public class WaylandInputSimulator : IInputSimulator
+public sealed class WaylandInputSimulator : IInputSimulator
 {
     private Connection? _connection;
     private IRemoteDesktopPortal? _portal;

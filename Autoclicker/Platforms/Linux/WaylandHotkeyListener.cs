@@ -17,7 +17,7 @@ public interface IGlobalShortcutsPortal : IDBusObject
     Task<IDisposable> WatchActivatedAsync(Action<(ObjectPath sessionHandle, string shortcutId, ulong timestamp, IDictionary<string, object> options)> handler, Action<Exception>? onError = null);
 }
 
-public class WaylandHotkeyListener : IHotkeyListener
+public sealed class WaylandHotkeyListener : IHotkeyListener
 {
     // The event that the GUI will use to stop the autoclicker
     public event Action? OnStopRequested;

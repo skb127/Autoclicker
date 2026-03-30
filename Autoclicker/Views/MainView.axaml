@@ -3,24 +3,59 @@
              xmlns:vm="clr-namespace:Autoclicker.ViewModels"
              x:Class="Autoclicker.Views.MainView"
              x:DataType="vm:MainViewModel">
-    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
-        <TextBlock Text="Multiplatform Autoclicker" FontSize="24" HorizontalAlignment="Center"/>
+    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,*,Auto" Margin="20">
+        <TextBlock Grid.ColumnSpan="2" Text="Cross-platform Autoclicker" FontSize="24" HorizontalAlignment="Center" Margin="0,0,0,20"/>
         
-        <Button Content="1. Select Coordinate" 
-                Command="{Binding CaptureCoordinateCommand}" 
-                IsEnabled="{Binding !IsClicking}"
-                HorizontalAlignment="Center"/>
-                
-        <TextBlock Text="{Binding CoordinatesText}" HorizontalAlignment="Center"/>
+        <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Grid.Column="0"
+                   Text="{Binding ErrorMessage}" 
+                   Foreground="Red" FontWeight="Bold" TextWrapping="Wrap" 
+                   HorizontalAlignment="Center" Margin="0,0,0,15" 
+                   IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+        <StackPanel Grid.Row="2" Grid.Column="0" Spacing="10" Margin="0,0,10,0">
+            <TextBlock Text="Interval between clicks (ms):"/>
+            <NumericUpDown Value="{Binding IntervalMs}" Minimum="1" Maximum="60000" IsEnabled="{Binding !IsClicking}"/>
+
+            <TextBlock Text="Repetitions (0 = Infinite Loop):"/>
+            <NumericUpDown Value="{Binding Repetitions}" Minimum="0" Maximum="9999" IsEnabled="{Binding !IsClicking}"/>
+
+            <Button Content="Add Coordinate to Pattern" 
+                    Command="{Binding CaptureCoordinateCommand}" 
+                    IsEnabled="{Binding !IsClicking}"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+                    
+            <Button Content="Clear Pattern" 
+                    Command="{Binding ClearPatternCommand}" 
+                    IsEnabled="{Binding !IsClicking}"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+        </StackPanel>
         
-        <Button Content="2. Start Autoclick (50ms)" 
-                Command="{Binding StartAutoclickCommand}" 
-                IsEnabled="{Binding !IsClicking}"
-                HorizontalAlignment="Center"/>
-                
-        <Button Content="Stop (Or press ESCAPE)" 
-                Command="{Binding StopAutoclickCommand}" 
-                IsEnabled="{Binding IsClicking}"
-                HorizontalAlignment="Center"/>
-    </StackPanel>
+        <StackPanel Grid.Row="2" Grid.Column="1" Spacing="10" Margin="10,0,0,0">
+            <TextBlock Text="Click Sequence (Pattern):"/>
+            <ListBox ItemsSource="{Binding ClickPatterns}" Height="150">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <TextBlock Text="X:"/>
+                            <TextBlock Text="{Binding X}"/>
+                            <TextBlock Text="  Y:"/>
+                            <TextBlock Text="{Binding Y}"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </StackPanel>
+        
+        <StackPanel Grid.Row="3" Grid.ColumnSpan="2" Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="20" Margin="0,20,0,0">
+            <Button Content="Start Autoclick" 
+                    Command="{Binding StartAutoclickCommand}" 
+                    IsEnabled="{Binding !IsClicking}"
+                    Width="150" HorizontalContentAlignment="Center"/>
+                    
+            <Button Content="Stop (Or press ESCAPE)"
+                    Command="{Binding StopAutoclickCommand}" 
+                    IsEnabled="{Binding IsClicking}"
+                    Width="150" HorizontalContentAlignment="Center"/>
+        </StackPanel>
+    </Grid>
 </UserControl>
