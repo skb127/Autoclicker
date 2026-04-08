@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Autoclicker
+Comment=Autoclicker with configurable click patterns and emergency stop key
+Exec=/media/sf_Autoclicker/Autoclicker.Desktop/bin/Release/net8.0/linux-x64/publish/Autoclicker.Desktop
+Icon=input-mouse
+Terminal=false
+Categories=Utility;
+StartupWMClass=Autoclicker.Desktop

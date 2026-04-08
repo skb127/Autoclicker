@@ -33,23 +33,33 @@ public sealed partial class X11InputSimulator : IInputSimulator
         {
             throw new Exception("Could not open connection to the X11 server.");
         }
+        
         return Task.CompletedTask;
     }
 
-    public void SimulateClick(int x, int y)
+    public Task SimulateClick(int x, int y)
     {
-        if (_display == IntPtr.Zero) return;
+        try
+        {
+            if (_display == IntPtr.Zero) return Task.CompletedTask;
 
-        // 1. Move the cursor to the absolute coordinate
-        XTestFakeMotionEvent(_display, -1, x, y, 0);
+            // 1. Move the cursor to the absolute coordinate
+            _ = XTestFakeMotionEvent(_display, -1, x, y, 0);
             
-        // 2. Simulate pressing the left button (In Linux, the left button is button 1)
-        XTestFakeButtonEvent(_display, 1, true, 0);
+            // 2. Simulate pressing the left button (In Linux, the left button is button 1)
+            XTestFakeButtonEvent(_display, 1, true, 0);
             
-        // 3. Simulate releasing the left button
-        XTestFakeButtonEvent(_display, 1, false, 0);
+            // 3. Simulate releasing the left button
+            XTestFakeButtonEvent(_display, 1, false, 0);
+
+            // 4. Force the immediate sending of instructions to the server
+            _ = XFlush(_display);
             
-        // 4. Force the immediate sending of instructions to the server
-        XFlush(_display);
+            return Task.CompletedTask;
+        }
+        catch (Exception exception)
+        {
+            return Task.FromException(exception);
+        }
     }
 }

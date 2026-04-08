@@ -3,59 +3,152 @@
              xmlns:vm="clr-namespace:Autoclicker.ViewModels"
              x:Class="Autoclicker.Views.MainView"
              x:DataType="vm:MainViewModel">
-    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,*,Auto" Margin="20">
-        <TextBlock Grid.ColumnSpan="2" Text="Cross-platform Autoclicker" FontSize="24" HorizontalAlignment="Center" Margin="0,0,0,20"/>
-        
-        <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Grid.Column="0"
-                   Text="{Binding ErrorMessage}" 
-                   Foreground="Red" FontWeight="Bold" TextWrapping="Wrap" 
-                   HorizontalAlignment="Center" Margin="0,0,0,15" 
-                   IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+    <Grid>
+        <!-- Main Application Content -->
+        <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="20">
+            <TextBlock Grid.ColumnSpan="2" Text="Cross-platform Autoclicker" FontSize="24" HorizontalAlignment="Center"
+                       Margin="0,0,0,20" />
 
-        <StackPanel Grid.Row="2" Grid.Column="0" Spacing="10" Margin="0,0,10,0">
-            <TextBlock Text="Interval between clicks (ms):"/>
-            <NumericUpDown Value="{Binding IntervalMs}" Minimum="1" Maximum="60000" IsEnabled="{Binding !IsClicking}"/>
+            <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Grid.Column="0"
+                       Text="{Binding ErrorMessage}"
+                       Foreground="Red" FontWeight="Bold" TextWrapping="Wrap"
+                       HorizontalAlignment="Center" Margin="0,0,0,15"
+                       IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
-            <TextBlock Text="Repetitions (0 = Infinite Loop):"/>
-            <NumericUpDown Value="{Binding Repetitions}" Minimum="0" Maximum="9999" IsEnabled="{Binding !IsClicking}"/>
+            <StackPanel Grid.Row="2" Grid.Column="0" Spacing="10" Margin="0,0,10,0">
+                <TextBlock Text="Interval between clicks (ms):" />
+                <NumericUpDown Value="{Binding IntervalMs}" Minimum="1" Maximum="60000"
+                               IsEnabled="{Binding !IsClicking}" />
 
-            <Button Content="Add Coordinate to Pattern" 
-                    Command="{Binding CaptureCoordinateCommand}" 
-                    IsEnabled="{Binding !IsClicking}"
-                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
-                    
-            <Button Content="Clear Pattern" 
-                    Command="{Binding ClearPatternCommand}" 
-                    IsEnabled="{Binding !IsClicking}"
-                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
-        </StackPanel>
-        
-        <StackPanel Grid.Row="2" Grid.Column="1" Spacing="10" Margin="10,0,0,0">
-            <TextBlock Text="Click Sequence (Pattern):"/>
-            <ListBox ItemsSource="{Binding ClickPatterns}" Height="150">
-                <ListBox.ItemTemplate>
-                    <DataTemplate>
-                        <StackPanel Orientation="Horizontal" Spacing="5">
-                            <TextBlock Text="X:"/>
-                            <TextBlock Text="{Binding X}"/>
-                            <TextBlock Text="  Y:"/>
-                            <TextBlock Text="{Binding Y}"/>
+                <TextBlock Text="Repetitions (0 = Infinite Loop):" />
+                <NumericUpDown Value="{Binding Repetitions}" Minimum="0" Maximum="9999"
+                               IsEnabled="{Binding !IsClicking}" />
+
+                <Button Content="Add Coordinate to Pattern"
+                        Command="{Binding CaptureCoordinateCommand}"
+                        IsEnabled="{Binding !IsClicking}"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+
+                <Button Content="Clear Pattern"
+                        Command="{Binding ClearPatternCommand}"
+                        IsEnabled="{Binding !IsClicking}"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+            </StackPanel>
+
+            <StackPanel Grid.Row="2" Grid.Column="1" Spacing="10" Margin="10,0,0,0">
+                <TextBlock Text="Click Sequence (Pattern):" />
+                <ListBox ItemsSource="{Binding ClickPatterns}" Height="150">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <TextBlock Text="X:" />
+                                <TextBlock Text="{Binding X}" />
+                                <TextBlock Text="  Y:" />
+                                <TextBlock Text="{Binding Y}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </StackPanel>
+
+            <!-- ═══════ Wayland Emergency Key Section (only visible on Wayland) ═══════ -->
+            <Border Grid.Row="3" Grid.ColumnSpan="2" Grid.Column="0"
+                    IsVisible="{Binding RequiresManualSetup}"
+                    BorderBrush="Orange" BorderThickness="1" CornerRadius="5"
+                    Padding="12" Margin="0,10">
+                <StackPanel Spacing="8">
+
+                    <!-- Header with status -->
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="⚠️ Wayland Emergency Key" FontWeight="Bold" FontSize="14" />
+                        <TextBlock Text="✅ Active" Foreground="Green" FontWeight="Bold"
+                                   IsVisible="{Binding IsHotkeyReady}" VerticalAlignment="Center" />
+                        <TextBlock Text="❌ Not configured" Foreground="Red" FontWeight="Bold"
+                                   IsVisible="{Binding !IsHotkeyReady}" VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <!-- Configuration options (only when not yet configured) -->
+                    <StackPanel IsVisible="{Binding !IsHotkeyReady}" Spacing="8">
+
+                        <!-- Portal configuration row with info button -->
+                        <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsPortalAvailable}">
+                            <Button Content="🔑 Configure via Portal"
+                                    Command="{Binding ConfigureWaylandHotkeyCommand}"
+                                    HorizontalAlignment="Left" />
+                            <Button Content="💡"
+                                    Command="{Binding OpenPortalInfoModalCommand}"
+                                    Background="Transparent"
+                                    ToolTip.Tip="Why did this fail or what is this?" />
                         </StackPanel>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
-        </StackPanel>
-        
-        <StackPanel Grid.Row="3" Grid.ColumnSpan="2" Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="20" Margin="0,20,0,0">
-            <Button Content="Start Autoclick" 
-                    Command="{Binding StartAutoclickCommand}" 
-                    IsEnabled="{Binding !IsClicking}"
-                    Width="150" HorizontalContentAlignment="Center"/>
-                    
-            <Button Content="Stop (Or press ESCAPE)"
-                    Command="{Binding StopAutoclickCommand}" 
-                    IsEnabled="{Binding IsClicking}"
-                    Width="150" HorizontalContentAlignment="Center"/>
-        </StackPanel>
+
+                        <!-- Manual D-Bus setup instructions -->
+                        <TextBlock Text="─── Manual Setup (GNOME Settings) ───"
+                                   FontWeight="SemiBold" Foreground="Gray" Margin="0,4,0,0" />
+
+                        <TextBlock TextWrapping="Wrap" FontSize="12"
+                                   Text="1. Open GNOME Settings → Keyboard → Custom Shortcuts" />
+                        <TextBlock TextWrapping="Wrap" FontSize="12"
+                                   Text="2. Add a new shortcut with this command:" />
+
+                        <TextBox Text="{Binding SetupInstructions, Mode=OneWay}"
+                                 IsReadOnly="True" FontSize="11"
+                                 FontFamily="Courier New, monospace" />
+
+                        <TextBlock TextWrapping="Wrap" FontSize="12"
+                                   Text="3. Assign your preferred key combo (e.g., Ctrl+Escape)" />
+
+                        <Button Content="✅ I have configured the shortcut"
+                                Command="{Binding ConfirmManualSetupCommand}"
+                                HorizontalAlignment="Left" Margin="0,4,0,0" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ═══════ Start / Stop Buttons ═══════ -->
+            <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Grid.Column="0" Orientation="Horizontal"
+                        HorizontalAlignment="Center" Spacing="20" Margin="0,20,0,0">
+                <Button Content="Start Autoclick"
+                        Command="{Binding StartAutoclickCommand}"
+                        IsEnabled="{Binding CanStartAutoclick}"
+                        Width="150" HorizontalContentAlignment="Center" />
+
+                <Button Content="Stop (Or press ESCAPE)"
+                        Command="{Binding StopAutoclickCommand}"
+                        IsEnabled="{Binding IsClicking}"
+                        Width="150" HorizontalContentAlignment="Center" />
+            </StackPanel>
+        </Grid>
+
+        <!-- ═══════ Portal Info Modal Overlay ═══════ -->
+        <Border Background="#CC000000"
+                IsVisible="{Binding IsPortalInfoModalOpen}"
+                HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                ZIndex="100">
+            <Border Background="#2D2D30"
+                    BorderBrush="#555555" BorderThickness="1"
+                    CornerRadius="8" Padding="20"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    MaxWidth="500">
+                <StackPanel Spacing="15">
+                    <TextBlock Text="ℹ️ About Automatic Configuration"
+                               FontWeight="Bold" FontSize="16" Foreground="White" />
+
+                    <TextBlock TextWrapping="Wrap" FontSize="13" Foreground="#DDDDDD"
+                               Text="When you click 'Configure via Portal', Linux will ask you to set an emergency shortcut." />
+
+                    <TextBlock TextWrapping="Wrap" FontSize="13" Foreground="#DDDDDD"
+                               Text="However, on some systems, Linux may silently reject your key combination without warning." />
+
+                    <TextBlock TextWrapping="Wrap" FontSize="13" Foreground="#DDDDDD"
+                               Text="When this happens, the automatic method will no longer work for safety reasons. To fix this, simply use the 100% reliable Manual Setup described below." />
+
+                    <Button Content="Got it!"
+                            Command="{Binding ClosePortalInfoModalCommand}"
+                            HorizontalAlignment="Right" Margin="0,10,0,0"
+                            Classes="accent" />
+                </StackPanel>
+            </Border>
+        </Border>
     </Grid>
 </UserControl>
+

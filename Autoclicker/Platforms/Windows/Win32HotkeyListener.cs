@@ -11,20 +11,20 @@ public sealed partial class Win32HotkeyListener : IHotkeyListener
     [LibraryImport("user32.dll")]
     private static partial short GetAsyncKeyState(int vKey);
 
-    // The hexadecimal code for the ESCAPE key
-    private const int VkEscape = 0x1B; 
-        
+    private const int VkEscape = 0x1B;
+
     private CancellationTokenSource? _cts;
 
     public event Action? OnStopRequested;
 
-    public void StartListening()
+    public Task StartListening()
     {
         Console.WriteLine(" Starting to listen for the ESCAPE key...");
         _cts = new CancellationTokenSource();
-            
-        // We start a secondary thread that will watch the key
-        Task.Run(() => ListenLoop(_cts.Token));
+
+        _ = Task.Run(() => ListenLoop(_cts.Token));
+
+        return Task.CompletedTask;
     }
 
     public void StopListening()
@@ -32,7 +32,7 @@ public sealed partial class Win32HotkeyListener : IHotkeyListener
         _cts?.Cancel();
         _cts?.Dispose();
         _cts = null;
-        
+
         Console.WriteLine(" Stopped listening to the keyboard.");
     }
 
@@ -40,17 +40,26 @@ public sealed partial class Win32HotkeyListener : IHotkeyListener
     {
         while (!token.IsCancellationRequested)
         {
-            // If the most significant bit (0x8000) is on, the key is being pressed
-            if ((GetAsyncKeyState(VkEscape) & 0x8000)!= 0)
+            try
             {
-                OnStopRequested?.Invoke();
-                    
-                // We wait half a second to avoid firing the event multiple times for a single press
-                await Task.Delay(500, token);
+                if ((GetAsyncKeyState(VkEscape) & 0x8000) != 0)
+                {
+                    OnStopRequested?.Invoke();
+                    await Task.Delay(500, token);
+                }
+
+                await Task.Delay(50, token);
             }
-                
-            // Light polling every 50ms to avoid consuming the processor
-            await Task.Delay(50, token); 
+            catch (TaskCanceledException)
+            {
+                // Expected when StopListening is called
+                break;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in Win32 listener loop: {ex.Message}");
+                break;
+            }
         }
     }
 }

@@ -8,5 +8,5 @@ public interface IInputSimulator
     Task InitializeAsync();
         
     // Execute the real physical click
-    void SimulateClick(int x, int y);
+    Task SimulateClick(int x, int y);
 }

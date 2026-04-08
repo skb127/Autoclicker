@@ -16,7 +16,7 @@ public interface IScreenshotPortal : IDBusObject
 
 // 2. Map the Response object returned by Ubuntu
 [DBusInterface("org.freedesktop.portal.Request")]
-public interface IRequest : IDBusObject
+public interface IPickerRequest : IDBusObject
 {
     // Event triggered when the user finishes interacting
     Task<IDisposable> WatchResponseAsync(Action<(uint response, IDictionary<string, object> results)> handler, Action<Exception>? onError = null);
@@ -47,11 +47,11 @@ public sealed class WaylandCoordinatePicker : ICoordinatePicker
 
             // Send the request. Ubuntu returns a "Request" (a waiting room)
             var requestPath = await portal.ScreenshotAsync("", options);
-            var request = connection.CreateProxy<IRequest>("org.freedesktop.portal.Desktop", requestPath);
+            var request = connection.CreateProxy<IPickerRequest>("org.freedesktop.portal.Desktop", requestPath);
 
             // Wait for the user to click on the screen
             await request.WatchResponseAsync(
-                reply =>
+                _ =>
                 {
                     // Ubuntu returns control here.
                     // In a more advanced real scenario, we would extract the selected geometry

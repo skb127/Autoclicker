@@ -5,9 +5,9 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 
-namespace Autoclicker.Platforms.Windows;
+namespace Autoclicker.Platforms.Common;
 
-public sealed class Win32CoordinatePicker : ICoordinatePicker
+public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
 {
     public Task<(int X, int Y)> PickCoordinateAsync()
     {
@@ -26,15 +26,15 @@ public sealed class Win32CoordinatePicker : ICoordinatePicker
         };
 
         // Listen for the click event
-        overlayWindow.PointerPressed += (sender, e) =>
+        overlayWindow.PointerPressed += (_, e) =>
         {
             // Get the global monitor position in pixels
             var point = e.GetPosition(overlayWindow);
             var screenPoint = overlayWindow.PointToScreen(point);
-                
+
             // Return the result to the ViewModel
             tcs.TrySetResult((screenPoint.X, screenPoint.Y));
-                
+
             // Close the window
             overlayWindow.Close();
         };

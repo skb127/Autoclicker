@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Threading;
@@ -19,40 +19,71 @@ public partial class MainViewModel : ViewModelBase
     private readonly ICoordinatePicker _coordinatePicker;
     private readonly IHotkeyListener _hotkeyListener;
 
-    [ObservableProperty] 
-    private string _coordinatesText = "Selected coordinate: X: 0, Y: 0";
+    [ObservableProperty] private string _coordinatesText = "Selected coordinate: X: 0, Y: 0";
 
-    // This property will control if the loop is on or off
-    [ObservableProperty]
-    private bool _isClicking;
-    
-    // User-configurable time (in milliseconds)
-    [ObservableProperty]
-    private int _intervalMs = 1000; 
+    [ObservableProperty] private bool _isClicking;
 
-    // Configurable repetitions (0 = Infinite)
-    [ObservableProperty]
-    private int _repetitions = 0; 
+    [ObservableProperty] private int _intervalMs = 1000;
 
-    // WARNING SYSTEM: Red message in case of error on Linux
-    [ObservableProperty]
-    private string _errorMessage = string.Empty;
+    [ObservableProperty] private int _repetitions;
 
-    // REQUIREMENT FULFILLED: Click pattern (Multiple coordinates)
+    [ObservableProperty] private string _errorMessage = string.Empty;
+
+    [ObservableProperty] private bool _isPortalInfoModalOpen;
+
+    [ObservableProperty] private bool _canStartAutoclick;
+
     public ObservableCollection<Coordinate> ClickPatterns { get; } = [];
 
-    // DI container will automatically inject native implementations here
+    // ─── Wayland-specific properties (read from the hotkey listener) ───
+
+    /// <summary>True if the platform requires explicit hotkey setup (Wayland only).</summary>
+    public bool RequiresManualSetup => _hotkeyListener.RequiresManualSetup;
+
+    /// <summary>True if the emergency hotkey is configured and ready.</summary>
+    public bool IsHotkeyReady => _hotkeyListener.IsHotkeyConfigured;
+
+    /// <summary>True if the GlobalShortcuts portal is available for automatic configuration.</summary>
+    public bool IsPortalAvailable => _hotkeyListener.IsPortalAvailable;
+
+    /// <summary>The busctl command the user needs for manual GNOME shortcut setup.</summary>
+    public string SetupInstructions => _hotkeyListener.SetupInstructions;
+
     public MainViewModel(
-        IInputSimulator inputSimulator, 
-        ICoordinatePicker coordinatePicker, 
+        IInputSimulator inputSimulator,
+        ICoordinatePicker coordinatePicker,
         IHotkeyListener hotkeyListener)
     {
         _inputSimulator = inputSimulator;
         _coordinatePicker = coordinatePicker;
         _hotkeyListener = hotkeyListener;
-        
+
         // We connect our native emergency key to the method that stops the loop
         _hotkeyListener.OnStopRequested += StopAutoclick;
+
+        // Initialize Wayland services asynchronously (fire-and-forget on startup)
+        _ = InitializeHotkeyAsync();
+    }
+
+    /// <summary>
+    /// Initializes the hotkey listener (starts D-Bus service, probes portal availability).
+    /// Called once on app startup. Updates UI state when complete.
+    /// </summary>
+    private async Task InitializeHotkeyAsync()
+    {
+        try
+        {
+            await _hotkeyListener.InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Hotkey initialization warning: {ex.Message}");
+        }
+
+        // RefreshWaylandState calls OnPropertyChanged, which MUST run on the UI thread.
+        // InitializeAsync runs on a background thread (fire-and-forget from constructor),
+        // so we marshal the notification back to the UI thread here.
+        await Dispatcher.UIThread.InvokeAsync(RefreshWaylandState);
     }
 
     [RelayCommand]
@@ -63,7 +94,7 @@ public partial class MainViewModel : ViewModelBase
         {
             var coordinate = await _coordinatePicker.PickCoordinateAsync();
             // We avoid adding 0,0 if it was a canceled error on Linux
-            if (coordinate.X!= 0 || coordinate.Y!= 0) 
+            if (coordinate.X != 0 || coordinate.Y != 0)
             {
                 ClickPatterns.Add(new Coordinate(coordinate.X, coordinate.Y));
             }
@@ -73,29 +104,46 @@ public partial class MainViewModel : ViewModelBase
             ErrorMessage = "Warning: " + ex.Message;
         }
     }
-    
+
     [RelayCommand]
     private void ClearPattern()
     {
         ClickPatterns.Clear();
         ErrorMessage = string.Empty;
     }
-    
+
     [RelayCommand]
     private async Task StartAutoclick()
     {
-        // Do not start if already clicking or if the pattern is empty
         if (IsClicking || ClickPatterns.Count == 0) return;
+
+        if (_hotkeyListener is { RequiresManualSetup: true, IsHotkeyConfigured: false })
+        {
+            ErrorMessage = "⚠️ Configure the emergency key before starting (see section below).";
+            return;
+        }
+
         ErrorMessage = string.Empty;
-        
-        try 
+
+        try
         {
             await _inputSimulator.InitializeAsync();
-            _hotkeyListener.StartListening();
+            await _hotkeyListener.StartListening();
 
             IsClicking = true;
 
-            Thread clickThread = new Thread(ClickLoop)
+            Thread clickThread = new Thread(async void () =>
+            {
+                try
+                {
+                    await ClickLoop();
+                }
+                catch (Exception ex)
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                        ErrorMessage = "Error in loop: " + ex.Message);
+                }
+            })
             {
                 IsBackground = true,
                 Priority = ThreadPriority.Highest
@@ -108,32 +156,104 @@ public partial class MainViewModel : ViewModelBase
             IsClicking = false;
         }
     }
-    
+
     [RelayCommand]
     private void StopAutoclick()
     {
         IsClicking = false;
         _hotkeyListener.StopListening();
     }
-    
-    private void ClickLoop()
+
+    // ─── Wayland-specific commands ─────────────────────────────────────
+
+    /// <summary>
+    /// Attempts to configure the emergency hotkey via the GNOME GlobalShortcuts portal.
+    /// Opens the system dialog where the user can assign a key binding.
+    /// </summary>
+    [RelayCommand]
+    private async Task ConfigureWaylandHotkey()
     {
-        // High precision timer integrated in .NET
+        ErrorMessage = string.Empty;
+
+        var success = await _hotkeyListener.ConfigureHotkeyAsync();
+
+        if (success)
+        {
+            Console.WriteLine("Portal hotkey configured successfully.");
+        }
+        else
+        {
+            ErrorMessage = "Portal configuration failed. Please use the manual setup below.";
+        }
+
+        RefreshWaylandState();
+    }
+
+    /// <summary>
+    /// Called when the user confirms they have manually configured a GNOME custom shortcut.
+    /// Unlocks the Start button.
+    /// </summary>
+    [RelayCommand]
+    private void ConfirmManualSetup()
+    {
+        _hotkeyListener.ConfirmManualSetup();
+        ErrorMessage = string.Empty;
+        RefreshWaylandState();
+    }
+
+    [RelayCommand]
+    private void OpenPortalInfoModal()
+    {
+        IsPortalInfoModalOpen = true;
+    }
+
+    [RelayCommand]
+    private void ClosePortalInfoModal()
+    {
+        IsPortalInfoModalOpen = false;
+    }
+
+    // ─── State Management ──────────────────────────────────────────────
+
+    /// <summary>Updates CanStartAutoclick based on current state.</summary>
+    private void UpdateCanStart()
+    {
+        // On Win32/X11: RequiresManualSetup=false → always allowed (just !IsClicking)
+        // On Wayland: also requires IsHotkeyConfigured
+        CanStartAutoclick = !IsClicking && (!_hotkeyListener.RequiresManualSetup || _hotkeyListener.IsHotkeyConfigured);
+    }
+
+    /// <summary>Refreshes all Wayland-related UI bindings after state changes.</summary>
+    private void RefreshWaylandState()
+    {
+        OnPropertyChanged(nameof(RequiresManualSetup));
+        OnPropertyChanged(nameof(IsHotkeyReady));
+        OnPropertyChanged(nameof(IsPortalAvailable));
+        OnPropertyChanged(nameof(SetupInstructions));
+        UpdateCanStart();
+    }
+
+    /// <summary>Called by CommunityToolkit.Mvvm when IsClicking changes.</summary>
+    partial void OnIsClickingChanged(bool value)
+    {
+        UpdateCanStart();
+    }
+
+    private async Task ClickLoop()
+    {
         var watch = Stopwatch.StartNew();
         int currentRepeats = 0;
-            
-        try 
+
+        try
         {
             while (IsClicking)
             {
-                // We iterate over the click pattern defined by the user
                 foreach (var point in ClickPatterns)
                 {
                     if (!IsClicking) break;
 
-                    _inputSimulator.SimulateClick(point.X, point.Y);
+                    await _inputSimulator.SimulateClick(point.X, point.Y);
 
-                    // We calculate the wait using our high-precision timer
                     long expectedTicks = watch.ElapsedTicks + (IntervalMs * Stopwatch.Frequency / 1000);
                     while (watch.ElapsedTicks < expectedTicks)
                     {
@@ -152,15 +272,14 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            // We send the error to the GUI safely
-            Dispatcher.UIThread.InvokeAsync(() => 
+            await Dispatcher.UIThread.InvokeAsync(() =>
                 ErrorMessage = "Error in loop: " + ex.Message);
         }
-        finally 
+        finally
         {
             watch.Stop();
-            // We return the state to the interface safely on the UI thread
-            Dispatcher.UIThread.InvokeAsync(() => {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
                 IsClicking = false;
                 _hotkeyListener.StopListening();
             });
