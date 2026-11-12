@@ -16,7 +16,8 @@ public sealed class ServiceLocator
     {
         var services = new ServiceCollection();
 
-        // 1. Register our ViewModels
+        // 1. Register cross-platform application services and ViewModels
+        services.AddSingleton<ISettingsStore, SettingsStore>();
         services.AddTransient<MainViewModel>();
 
         // 2. Register native implementations depending on the OS
@@ -28,7 +29,7 @@ public sealed class ServiceLocator
         }
         else if (OperatingSystem.IsLinux())
         {
-            // We read the standard Linux environment variable to detect the graphics server
+            // Read the standard Linux environment variable to detect the graphics server
             var sessionType = Environment.GetEnvironmentVariable("XDG_SESSION_TYPE")?.ToLower() ?? "";
 
             if (sessionType == "wayland")
@@ -41,7 +42,7 @@ public sealed class ServiceLocator
             }
             else
             {
-                // X11: the transparent window approach works perfectly
+                // X11: the transparent window approach works cleanly
                 services.AddSingleton<ICoordinatePicker, CrossPlatformCoordinatePicker>();
                 services.AddSingleton<IInputSimulator, X11InputSimulator>();
                 services.AddSingleton<IHotkeyListener, X11HotkeyListener>();

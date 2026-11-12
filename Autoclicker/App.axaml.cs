@@ -20,17 +20,22 @@ public class App : Application
     {
         // 1. Configure services (Linux or Windows)
         ServiceLocator.ConfigureServices();
-        
+
         // 2. Extract the ViewModel already built with its dependencies
         var mainViewModel = ServiceLocator.Provider?.GetRequiredService<MainViewModel>();
 
         // 3. Inject the ViewModel into the window
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow
+            var mainWindow = new MainWindow
             {
                 DataContext = mainViewModel
             };
+
+            // Persist current settings and coordinate pattern when the window closes
+            mainWindow.Closing += (_, _) => mainViewModel?.SaveCurrentSettings();
+
+            desktop.MainWindow = mainWindow;
         }
         else if (ApplicationLifetime is ISingleViewApplicationLifetime singleViewPlatform)
         {

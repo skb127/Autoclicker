@@ -4,6 +4,9 @@ namespace Autoclicker.Services;
 
 public interface ICoordinatePicker
 {
-    // Async task that returns the coordinates which the user chose
-    Task<(int X, int Y)> PickCoordinateAsync();
+    /// <summary>
+    /// Opens an interactive overlay across all monitors and returns the global coordinate
+    /// clicked by the user, or <c>null</c> if the user cancels (e.g., by pressing Escape).
+    /// </summary>
+    Task<(int X, int Y)?> PickCoordinateAsync();
 }

@@ -4,120 +4,239 @@
              x:Class="Autoclicker.Views.MainView"
              x:DataType="vm:MainViewModel">
     <Grid>
-        <!-- Main Application Content -->
-        <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="20">
-            <TextBlock Grid.ColumnSpan="2" Text="Cross-platform Autoclicker" FontSize="24" HorizontalAlignment="Center"
-                       Margin="0,0,0,20" />
+        <!-- Main Application Content inside ScrollViewer -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="20">
+                <TextBlock Grid.ColumnSpan="2" Text="Cross-platform Autoclicker" FontSize="24"
+                           HorizontalAlignment="Center" Margin="0,0,0,16" />
 
-            <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Grid.Column="0"
-                       Text="{Binding ErrorMessage}"
-                       Foreground="Red" FontWeight="Bold" TextWrapping="Wrap"
-                       HorizontalAlignment="Center" Margin="0,0,0,15"
-                       IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Grid.Column="0"
+                           Text="{Binding ErrorMessage}"
+                           Foreground="Red" FontWeight="Bold" TextWrapping="Wrap"
+                           HorizontalAlignment="Center" Margin="0,0,0,12"
+                           IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
-            <StackPanel Grid.Row="2" Grid.Column="0" Spacing="10" Margin="0,0,10,0">
-                <TextBlock Text="Interval between clicks (ms):" />
-                <NumericUpDown Value="{Binding IntervalMs}" Minimum="1" Maximum="60000"
-                               IsEnabled="{Binding !IsClicking}" />
+                <!-- ═══════ Left Column: Configuration Expanders ═══════ -->
+                <StackPanel Grid.Row="2" Grid.Column="0" Spacing="10" Margin="0,0,10,0">
 
-                <TextBlock Text="Repetitions (0 = Infinite Loop):" />
-                <NumericUpDown Value="{Binding Repetitions}" Minimum="0" Maximum="9999"
-                               IsEnabled="{Binding !IsClicking}" />
+                    <!-- 1. Interval & Repetitions -->
+                    <Expander Header="Interval &amp; Repetitions" IsExpanded="True" HorizontalAlignment="Stretch">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Interval / Min interval (ms):"
+                                       ToolTip.Tip="Measured start-to-start between consecutive actions." />
+                            <NumericUpDown Value="{Binding MinIntervalMs}" Minimum="1" Maximum="60000"
+                                           IsEnabled="{Binding !IsClicking}" />
 
-                <Button Content="Add Coordinate to Pattern"
-                        Command="{Binding CaptureCoordinateCommand}"
-                        IsEnabled="{Binding !IsClicking}"
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                            <CheckBox Content="Randomize interval (range)"
+                                      IsChecked="{Binding RandomizeInterval}"
+                                      IsEnabled="{Binding !IsClicking}" />
 
-                <Button Content="Clear Pattern"
-                        Command="{Binding ClearPatternCommand}"
-                        IsEnabled="{Binding !IsClicking}"
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-            </StackPanel>
-
-            <StackPanel Grid.Row="2" Grid.Column="1" Spacing="10" Margin="10,0,0,0">
-                <TextBlock Text="Click Sequence (Pattern):" />
-                <ListBox ItemsSource="{Binding ClickPatterns}" Height="150">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <TextBlock Text="X:" />
-                                <TextBlock Text="{Binding X}" />
-                                <TextBlock Text="  Y:" />
-                                <TextBlock Text="{Binding Y}" />
+                            <StackPanel Spacing="4" IsVisible="{Binding RandomizeInterval}">
+                                <TextBlock Text="Max interval (ms):" />
+                                <NumericUpDown Value="{Binding MaxIntervalMs}" Minimum="1" Maximum="60000"
+                                               IsEnabled="{Binding !IsClicking}" />
                             </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </StackPanel>
 
-            <!-- ═══════ Wayland Emergency Key Section (only visible on Wayland) ═══════ -->
-            <Border Grid.Row="3" Grid.ColumnSpan="2" Grid.Column="0"
-                    IsVisible="{Binding RequiresManualSetup}"
-                    BorderBrush="Orange" BorderThickness="1" CornerRadius="5"
-                    Padding="12" Margin="0,10">
-                <StackPanel Spacing="8">
+                            <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                                       Text="ℹ️ Start-to-start timing: the interval is measured from the start of one action to the start of the next. If a hold or human movement takes longer than the interval, the next action starts immediately after." />
 
-                    <!-- Header with status -->
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="⚠️ Wayland Emergency Key" FontWeight="Bold" FontSize="14" />
-                        <TextBlock Text="✅ Active" Foreground="Green" FontWeight="Bold"
-                                   IsVisible="{Binding IsHotkeyReady}" VerticalAlignment="Center" />
-                        <TextBlock Text="❌ Not configured" Foreground="Red" FontWeight="Bold"
-                                   IsVisible="{Binding !IsHotkeyReady}" VerticalAlignment="Center" />
-                    </StackPanel>
+                            <TextBlock Text="Repetitions (0 = Infinite Loop):" Margin="0,4,0,0" />
+                            <NumericUpDown Value="{Binding Repetitions}" Minimum="0" Maximum="9999"
+                                           IsEnabled="{Binding !IsClicking}" />
+                        </StackPanel>
+                    </Expander>
 
-                    <!-- Configuration options (only when not yet configured) -->
-                    <StackPanel IsVisible="{Binding !IsHotkeyReady}" Spacing="8">
+                    <!-- 2. Click Action & Button -->
+                    <Expander Header="Click Action &amp; Button" IsExpanded="True" HorizontalAlignment="Stretch">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                                <StackPanel Grid.Column="0" Spacing="4">
+                                    <TextBlock Text="Mouse Button:" />
+                                    <ComboBox ItemsSource="{Binding AvailableButtons}"
+                                              SelectedItem="{Binding SelectedButton}"
+                                              IsEnabled="{Binding CanSelectMouseButton}"
+                                              HorizontalAlignment="Stretch" />
+                                </StackPanel>
 
-                        <!-- Portal configuration row with info button -->
-                        <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsPortalAvailable}">
-                            <Button Content="🔑 Configure via Portal"
-                                    Command="{Binding ConfigureWaylandHotkeyCommand}"
-                                    HorizontalAlignment="Left" />
-                            <Button Content="💡"
-                                    Command="{Binding OpenPortalInfoModalCommand}"
-                                    Background="Transparent"
-                                    ToolTip.Tip="Why did this fail or what is this?" />
+                                <StackPanel Grid.Column="1" Spacing="4">
+                                    <TextBlock Text="Action Type:" />
+                                    <ComboBox ItemsSource="{Binding AvailableActions}"
+                                              SelectedItem="{Binding SelectedAction}"
+                                              IsEnabled="{Binding !IsClicking}"
+                                              HorizontalAlignment="Stretch" />
+                                </StackPanel>
+                            </Grid>
+
+                            <StackPanel Spacing="4" IsVisible="{Binding IsHoldSelected}">
+                                <TextBlock Text="Hold duration (ms):" />
+                                <NumericUpDown Value="{Binding HoldMs}" Minimum="1" Maximum="60000"
+                                               IsEnabled="{Binding !IsClicking}" />
+                            </StackPanel>
+
+                            <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                                       IsVisible="{Binding IsDragSelected}"
+                                       Text="ℹ️ Drag mode (Left button only) presses at the 1st coordinate, drags through the subsequent coordinates in the pattern, and releases at the final point (requires at least 2 coordinates)." />
+                        </StackPanel>
+                    </Expander>
+
+                    <!-- 3. Movement & Jitter -->
+                    <Expander Header="Movement &amp; Jitter" IsExpanded="True" HorizontalAlignment="Stretch">
+                        <StackPanel Spacing="8">
+                            <CheckBox Content="Human-like mouse movement (WindMouse)"
+                                      IsChecked="{Binding HumanMovement}"
+                                      IsEnabled="{Binding !IsClicking}" />
+
+                            <StackPanel Spacing="4" IsVisible="{Binding HumanMovement}">
+                                <TextBlock Text="Movement speed:" />
+                                <ComboBox ItemsSource="{Binding AvailableSpeeds}"
+                                          SelectedItem="{Binding MovementSpeed}"
+                                          IsEnabled="{Binding !IsClicking}"
+                                          HorizontalAlignment="Stretch" />
+                            </StackPanel>
+
+                            <Border Background="#33FFA500" BorderBrush="Orange" BorderThickness="1"
+                                    CornerRadius="4" Padding="8"
+                                    IsVisible="{Binding IsShortIntervalWarningVisible}">
+                                <TextBlock FontSize="11" TextWrapping="Wrap"
+                                           Text="⚠️ Human-like movement typically takes 150–450 ms per stroke. Because your interval is under 300 ms, the effective pace will be limited by the movement duration." />
+                            </Border>
+
+                            <TextBlock Text="Coordinate jitter (± px, 0 = exact):" Margin="0,4,0,0" />
+                            <NumericUpDown Value="{Binding JitterPx}" Minimum="0" Maximum="50"
+                                           IsEnabled="{Binding !IsClicking}" />
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+
+                <!-- ═══════ Right Column: Pattern Sequence ═══════ -->
+                <StackPanel Grid.Row="2" Grid.Column="1" Spacing="10" Margin="10,0,0,0">
+                    <Expander Header="Click Sequence (Pattern)" IsExpanded="True" HorizontalAlignment="Stretch">
+                        <StackPanel Spacing="8">
+                            <TextBlock FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                                       Text="Tip: Drag and drop coordinates to reorder, or use the buttons below." />
+
+                            <ListBox x:Name="PatternListBox"
+                                     ItemsSource="{Binding ClickPatterns}"
+                                     SelectedIndex="{Binding SelectedPatternIndex}"
+                                     DragDrop.AllowDrop="True"
+                                     Height="220">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="⠿" Foreground="Gray" VerticalAlignment="Center" />
+                                            <TextBlock Text="X:" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding X}" />
+                                            <TextBlock Text="  Y:" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Y}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
+                                <Button Grid.Column="0" Content="▲ Up"
+                                        Command="{Binding MovePatternUpCommand}"
+                                        IsEnabled="{Binding CanMovePatternUp}"
+                                        ToolTip.Tip="Move selected coordinate up" />
+                                <Button Grid.Column="1" Content="▼ Down"
+                                        Command="{Binding MovePatternDownCommand}"
+                                        IsEnabled="{Binding CanMovePatternDown}"
+                                        ToolTip.Tip="Move selected coordinate down" />
+                                <Button Grid.Column="2" Content="✕ Remove Selected"
+                                        Command="{Binding RemoveSelectedPatternCommand}"
+                                        IsEnabled="{Binding CanRemoveSelectedPattern}"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center" />
+                            </Grid>
+
+                            <Button Content="Add Coordinate to Pattern"
+                                    Command="{Binding CaptureCoordinateCommand}"
+                                    IsEnabled="{Binding !IsClicking}"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+
+                            <Button Content="Clear Pattern"
+                                    Command="{Binding ClearPatternCommand}"
+                                    IsEnabled="{Binding !IsClicking}"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+
+                <!-- ═══════ Wayland Emergency Key Section (only visible on Wayland) ═══════ -->
+                <Border Grid.Row="3" Grid.ColumnSpan="2" Grid.Column="0"
+                        IsVisible="{Binding RequiresManualSetup}"
+                        BorderBrush="Orange" BorderThickness="1" CornerRadius="5"
+                        Padding="12" Margin="0,12,0,0">
+                    <StackPanel Spacing="8">
+
+                        <!-- Header with status -->
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="⚠️ Wayland Emergency Key" FontWeight="Bold" FontSize="14"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text="✔ Active" Foreground="Green" FontWeight="Bold"
+                                       IsVisible="{Binding IsHotkeyReady}" VerticalAlignment="Center" />
+                            <TextBlock Text="✖ Not configured" Foreground="Red" FontWeight="Bold"
+                                       IsVisible="{Binding !IsHotkeyReady}" VerticalAlignment="Center" />
+                            <Button Content="⚙️ Show / Hide Setup"
+                                    Command="{Binding ToggleWaylandSetupDetailsCommand}"
+                                    IsVisible="{Binding IsHotkeyReady}"
+                                    FontSize="11" Padding="8,2"
+                                    VerticalAlignment="Center" />
                         </StackPanel>
 
-                        <!-- Manual D-Bus setup instructions -->
-                        <TextBlock Text="─── Manual Setup (GNOME Settings) ───"
-                                   FontWeight="SemiBold" Foreground="Gray" Margin="0,4,0,0" />
+                        <!-- Configuration options (visible when not configured or when toggled open) -->
+                        <StackPanel IsVisible="{Binding IsWaylandSetupSectionVisible}" Spacing="8">
 
-                        <TextBlock TextWrapping="Wrap" FontSize="12"
-                                   Text="1. Open GNOME Settings → Keyboard → Custom Shortcuts" />
-                        <TextBlock TextWrapping="Wrap" FontSize="12"
-                                   Text="2. Add a new shortcut with this command:" />
+                            <!-- Portal configuration row with info button -->
+                            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsPortalAvailable}">
+                                <Button Content="🔑 Configure via Portal"
+                                        Command="{Binding ConfigureWaylandHotkeyCommand}"
+                                        HorizontalAlignment="Left" />
+                                <Button Content="💡"
+                                        Command="{Binding OpenPortalInfoModalCommand}"
+                                        Background="Transparent"
+                                        ToolTip.Tip="Why did this fail or what is this?" />
+                            </StackPanel>
 
-                        <TextBox Text="{Binding SetupInstructions, Mode=OneWay}"
-                                 IsReadOnly="True" FontSize="11"
-                                 FontFamily="Courier New, monospace" />
+                            <!-- Manual D-Bus setup instructions -->
+                            <TextBlock Text="─── Manual Setup (System Keyboard Settings) ───"
+                                       FontWeight="SemiBold" Foreground="Gray" Margin="0,4,0,0" />
 
-                        <TextBlock TextWrapping="Wrap" FontSize="12"
-                                   Text="3. Assign your preferred key combo (e.g., Ctrl+Escape)" />
+                            <TextBlock TextWrapping="Wrap" FontSize="12"
+                                       Text="1. Open System Settings (COSMIC / GNOME / KDE) → Keyboard → Custom Shortcuts" />
+                            <TextBlock TextWrapping="Wrap" FontSize="12"
+                                       Text="2. Add a new shortcut with this command:" />
 
-                        <Button Content="✅ I have configured the shortcut"
-                                Command="{Binding ConfirmManualSetupCommand}"
-                                HorizontalAlignment="Left" Margin="0,4,0,0" />
+                            <TextBox Text="{Binding SetupInstructions, Mode=OneWay}"
+                                     IsReadOnly="True" FontSize="11"
+                                     FontFamily="Courier New, monospace" />
+
+                            <TextBlock TextWrapping="Wrap" FontSize="12"
+                                       Text="3. Assign your preferred key combo (e.g., Ctrl+Escape)" />
+
+                            <Button Content="✔ I have configured the shortcut"
+                                    Command="{Binding ConfirmManualSetupCommand}"
+                                    IsVisible="{Binding !IsHotkeyReady}"
+                                    HorizontalAlignment="Left" Margin="0,4,0,0" />
+                        </StackPanel>
                     </StackPanel>
+                </Border>
+
+                <!-- ═══════ Start / Stop Buttons ═══════ -->
+                <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Grid.Column="0" Orientation="Horizontal"
+                            HorizontalAlignment="Center" Spacing="20" Margin="0,20,0,0">
+                    <Button Content="Start Autoclick"
+                            Command="{Binding StartAutoclickCommand}"
+                            IsEnabled="{Binding CanStartAutoclick}"
+                            Width="160" HorizontalContentAlignment="Center" />
+
+                    <Button Content="Stop (Or press ESCAPE)"
+                            Command="{Binding StopAutoclickCommand}"
+                            IsEnabled="{Binding IsClicking}"
+                            Width="180" HorizontalContentAlignment="Center" />
                 </StackPanel>
-            </Border>
-
-            <!-- ═══════ Start / Stop Buttons ═══════ -->
-            <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Grid.Column="0" Orientation="Horizontal"
-                        HorizontalAlignment="Center" Spacing="20" Margin="0,20,0,0">
-                <Button Content="Start Autoclick"
-                        Command="{Binding StartAutoclickCommand}"
-                        IsEnabled="{Binding CanStartAutoclick}"
-                        Width="150" HorizontalContentAlignment="Center" />
-
-                <Button Content="Stop (Or press ESCAPE)"
-                        Command="{Binding StopAutoclickCommand}"
-                        IsEnabled="{Binding IsClicking}"
-                        Width="150" HorizontalContentAlignment="Center" />
-            </StackPanel>
-        </Grid>
+            </Grid>
+        </ScrollViewer>
 
         <!-- ═══════ Portal Info Modal Overlay ═══════ -->
         <Border Background="#CC000000"
@@ -151,4 +270,3 @@
         </Border>
     </Grid>
 </UserControl>
-
