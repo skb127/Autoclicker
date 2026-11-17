@@ -1,0 +1,58 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Autoclicker.Views.Controls.MessageDialog"
+             HorizontalAlignment="Stretch"
+             VerticalAlignment="Stretch"
+             IsVisible="False">
+    <Border Background="#CC000000"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Stretch">
+        <Border x:Name="CardBorder"
+                Background="#2D2D30"
+                BorderBrush="#555555"
+                BorderThickness="1.5"
+                CornerRadius="8"
+                Padding="22"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                MinWidth="340"
+                MaxWidth="480"
+                Margin="24"
+                KeyboardNavigation.TabNavigation="Cycle">
+            <StackPanel Spacing="14">
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                    <TextBlock x:Name="SeverityIconText"
+                               Grid.Column="0"
+                               FontSize="20"
+                               VerticalAlignment="Center" />
+                    <TextBlock x:Name="TitleText"
+                               Grid.Column="1"
+                               FontWeight="Bold"
+                               FontSize="16"
+                               Foreground="White"
+                               TextWrapping="Wrap"
+                               VerticalAlignment="Center" />
+                </Grid>
+
+                <ScrollViewer MaxHeight="280"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <TextBlock x:Name="MessageText"
+                               FontSize="13"
+                               Foreground="#DDDDDD"
+                               TextWrapping="Wrap"
+                               LineHeight="20" />
+                </ScrollViewer>
+
+                <Button x:Name="OkButton"
+                        Content="OK"
+                        HorizontalAlignment="Right"
+                        HorizontalContentAlignment="Center"
+                        MinWidth="90"
+                        Margin="0,4,0,0"
+                        Classes="accent"
+                        Click="OnOkButtonClick" />
+            </StackPanel>
+        </Border>
+    </Border>
+</UserControl>

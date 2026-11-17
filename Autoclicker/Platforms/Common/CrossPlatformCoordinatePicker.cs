@@ -14,8 +14,22 @@ namespace Autoclicker.Platforms.Common;
 
 public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
 {
-    public Task<(int X, int Y)?> PickCoordinateAsync()
+    // Brief delay after hiding MainWindow so the OS/compositor repaints the desktop
+    // underneath before the translucent capture overlays appear.
+    private const int HideSettleDelayMs = 120;
+
+    public async Task<(int X, int Y)?> PickCoordinateAsync()
     {
+        var mainWindow = GetMainWindow();
+        // Enumerate screens before hiding MainWindow so screen metadata remains accessible.
+        var screens = GetAvailableScreens(mainWindow);
+
+        bool wasMainWindowVisible = mainWindow is { IsVisible: true };
+        WindowState savedWindowState = mainWindow?.WindowState ?? WindowState.Normal;
+        PixelPoint? savedPosition = mainWindow is not null && savedWindowState == WindowState.Normal
+            ? mainWindow.Position
+            : null;
+
         var tcs = new TaskCompletionSource<(int X, int Y)?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var overlayWindows = new List<Window>();
         bool isClosingAll = false;
@@ -38,40 +52,79 @@ public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
             }
         }
 
-        var screens = GetAvailableScreens();
-        if (screens.Count > 0)
+        try
         {
-            foreach (var screen in screens)
+            if (mainWindow is not null && wasMainWindowVisible)
             {
-                var window = CreateOverlayForScreen(screen, tcs, CloseAllOverlays);
-                overlayWindows.Add(window);
+                mainWindow.Hide();
+                await Task.Delay(HideSettleDelayMs);
+            }
+
+            if (screens.Count > 0)
+            {
+                foreach (var screen in screens)
+                {
+                    var window = CreateOverlayForScreen(screen, tcs);
+                    overlayWindows.Add(window);
+                }
+            }
+            else
+            {
+                // Fallback if screen enumeration is unavailable
+                var fallbackWindow = CreateOverlayForScreen(null, tcs);
+                overlayWindows.Add(fallbackWindow);
+            }
+
+            foreach (var window in overlayWindows)
+            {
+                window.Show();
+            }
+
+            // Activate and focus the first overlay window so Escape is captured immediately
+            if (overlayWindows.Count > 0)
+            {
+                overlayWindows[0].Activate();
+                overlayWindows[0].Focus();
+            }
+
+            return await tcs.Task;
+        }
+        finally
+        {
+            // Restore and activate MainWindow before closing the overlays so the OS
+            // preserves foreground-activation permission for this process, then re-activate
+            // once the topmost overlays are gone.
+            if (mainWindow is not null && wasMainWindowVisible)
+            {
+                mainWindow.Show();
+
+                if (savedWindowState == WindowState.Maximized &&
+                    mainWindow.WindowState != WindowState.Maximized)
+                {
+                    mainWindow.WindowState = WindowState.Maximized;
+                }
+                else if (savedWindowState == WindowState.Normal &&
+                         savedPosition is { } pos &&
+                         mainWindow.Position != pos)
+                {
+                    mainWindow.Position = pos;
+                }
+
+                mainWindow.Activate();
+            }
+
+            CloseAllOverlays();
+
+            if (mainWindow is not null && wasMainWindowVisible)
+            {
+                mainWindow.Activate();
             }
         }
-        else
-        {
-            // Fallback if screen enumeration is unavailable
-            var fallbackWindow = CreateOverlayForScreen(null, tcs, CloseAllOverlays);
-            overlayWindows.Add(fallbackWindow);
-        }
-
-        foreach (var window in overlayWindows)
-        {
-            window.Show();
-        }
-
-        // Focus the first overlay window so Escape key events are captured immediately
-        if (overlayWindows.Count > 0)
-        {
-            overlayWindows[0].Focus();
-        }
-
-        return tcs.Task;
     }
 
     private static Window CreateOverlayForScreen(
         Screen? screen,
-        TaskCompletionSource<(int X, int Y)?> tcs,
-        Action closeAllOverlays)
+        TaskCompletionSource<(int X, int Y)?> tcs)
     {
         var liveCoordText = new TextBlock
         {
@@ -188,12 +241,13 @@ public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
 
         overlayWindow.PointerPressed += (_, e) =>
         {
+            if (tcs.Task.IsCompleted) return;
+
             var props = e.GetCurrentPoint(overlayWindow).Properties;
             if (props.IsRightButtonPressed)
             {
                 // Right-click also cancels coordinate capture
                 tcs.TrySetResult(null);
-                closeAllOverlays();
                 return;
             }
 
@@ -206,7 +260,6 @@ public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
                 $"ActualTransparency={overlayWindow.ActualTransparencyLevel}]");
 
             tcs.TrySetResult((screenPoint.X, screenPoint.Y));
-            closeAllOverlays();
         };
 
         overlayWindow.KeyDown += (_, e) =>
@@ -216,7 +269,6 @@ public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
                 e.Handled = true;
                 Console.WriteLine("Coordinate capture canceled by user (Escape).");
                 tcs.TrySetResult(null);
-                closeAllOverlays();
             }
         };
 
@@ -225,19 +277,22 @@ public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
             if (!tcs.Task.IsCompleted)
             {
                 tcs.TrySetResult(null);
-                closeAllOverlays();
             }
         };
 
         return overlayWindow;
     }
 
-    private static IReadOnlyList<Screen> GetAvailableScreens()
+    private static Window? GetMainWindow()
     {
-        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime
-            {
-                MainWindow.Screens.All: { Count: > 0 } screens
-            })
+        return Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop
+            ? desktop.MainWindow
+            : null;
+    }
+
+    private static IReadOnlyList<Screen> GetAvailableScreens(Window? mainWindow)
+    {
+        if (mainWindow?.Screens.All is { Count: > 0 } screens)
         {
             return screens;
         }

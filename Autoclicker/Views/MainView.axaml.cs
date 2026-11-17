@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 
 namespace Autoclicker.Views;
@@ -23,11 +24,79 @@ public partial class MainView : UserControl
     private Point? _dragStartPoint;
     private int _dragSourceIndex = -1;
     private bool _isDragging;
+    private MainViewModel? _subscribedViewModel;
 
     public MainView()
     {
         InitializeComponent();
         SetupPatternDragAndDrop();
+        PatternListBox.KeyDown += OnPatternListKeyDown;
+        DataContextChanged += OnDataContextChanged;
+    }
+
+    private void OnDataContextChanged(object? sender, EventArgs e)
+    {
+        if (_subscribedViewModel is not null)
+        {
+            _subscribedViewModel.CoordinateAdded -= OnCoordinateAdded;
+            _subscribedViewModel = null;
+        }
+
+        if (DataContext is MainViewModel vm)
+        {
+            vm.CoordinateAdded += OnCoordinateAdded;
+            _subscribedViewModel = vm;
+        }
+    }
+
+    private void OnCoordinateAdded(object? sender, int index)
+    {
+        FocusPatternItem(index);
+    }
+
+    private void OnPatternListKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Delete || DataContext is not MainViewModel vm || !vm.CanRemoveSelectedPattern)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        vm.RemoveSelectedPatternCommand.Execute(null);
+
+        if (vm.SelectedPatternIndex >= 0)
+        {
+            FocusPatternItem(vm.SelectedPatternIndex);
+        }
+        else
+        {
+            PatternListBox.Focus();
+        }
+    }
+
+    private void FocusPatternItem(int index)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (DataContext is not MainViewModel vm ||
+                index < 0 ||
+                index >= vm.ClickPatterns.Count)
+            {
+                return;
+            }
+
+            PatternListBox.ScrollIntoView(index);
+            PatternListBox.UpdateLayout();
+
+            if (PatternListBox.ContainerFromIndex(index) is Control itemControl)
+            {
+                itemControl.Focus();
+            }
+            else
+            {
+                PatternListBox.Focus();
+            }
+        }, DispatcherPriority.Loaded);
     }
 
     private void SetupPatternDragAndDrop()

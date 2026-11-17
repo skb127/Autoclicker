@@ -11,5 +11,8 @@
 
     <Application.Styles>
         <FluentTheme />
+        <Style Selector="Button:not(:disabled), RepeatButton:not(:disabled)">
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
     </Application.Styles>
 </Application>

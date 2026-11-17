@@ -6,6 +6,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Autoclicker.Core;
 using Autoclicker.Services;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -19,16 +22,19 @@ public record Coordinate(int X, int Y);
 
 public partial class MainViewModel : ViewModelBase
 {
+    private const int WindowHideSettleDelayMs = 120;
+
     private readonly IInputSimulator _inputSimulator;
     private readonly ICoordinatePicker _coordinatePicker;
     private readonly IHotkeyListener _hotkeyListener;
     private readonly ISettingsStore _settingsStore;
+    private readonly IScreenBoundsProvider _screenBoundsProvider;
     private readonly ClickEngine _clickEngine;
 
     private CancellationTokenSource? _clickCts;
     private bool _isLoadingSettings;
 
-    [ObservableProperty] private string _coordinatesText = "Selected coordinate: X: 0, Y: 0";
+    public event EventHandler<int>? CoordinateAdded;
 
     [ObservableProperty] private bool _isClicking;
 
@@ -58,15 +64,17 @@ public partial class MainViewModel : ViewModelBase
 
     [ObservableProperty] private MovementSpeedKind _movementSpeed = MovementSpeedKind.Normal;
 
-    // ─── Pattern Selection ─────────────────────────────────────────────
+    // ─── Pattern Selection & Manual Entry ──────────────────────────────
 
     [ObservableProperty] private int _selectedPatternIndex = -1;
 
+    [ObservableProperty] private int _manualX;
+
+    [ObservableProperty] private int _manualY;
+
     // ─── Status & Modals ───────────────────────────────────────────────
 
-    [ObservableProperty] private string _errorMessage = string.Empty;
-
-    [ObservableProperty] private bool _isPortalInfoModalOpen;
+    [ObservableProperty] private DialogMessage? _activeDialog;
 
     [ObservableProperty] private bool _showWaylandSetupDetails;
 
@@ -154,12 +162,14 @@ public partial class MainViewModel : ViewModelBase
         IInputSimulator inputSimulator,
         ICoordinatePicker coordinatePicker,
         IHotkeyListener hotkeyListener,
-        ISettingsStore settingsStore)
+        ISettingsStore settingsStore,
+        IScreenBoundsProvider screenBoundsProvider)
     {
         _inputSimulator = inputSimulator;
         _coordinatePicker = coordinatePicker;
         _hotkeyListener = hotkeyListener;
         _settingsStore = settingsStore;
+        _screenBoundsProvider = screenBoundsProvider;
         _clickEngine = new ClickEngine(_inputSimulator);
 
         ClickPatterns.CollectionChanged += (_, _) => RefreshPatternButtonsState();
@@ -266,8 +276,8 @@ public partial class MainViewModel : ViewModelBase
             JitterPx: JitterPx,
             HumanMovement: HumanMovement,
             MovementSpeed: MovementSpeed,
-            Pattern: ClickPatterns.ToList(),
-            WaylandHotkeyConfirmed: _hotkeyListener.RequiresManualSetup && _hotkeyListener.IsHotkeyConfigured);
+            Pattern: [.. ClickPatterns],
+            WaylandHotkeyConfirmed: _hotkeyListener is { RequiresManualSetup: true, IsHotkeyConfigured: true });
 
         _settingsStore.Save(settings);
     }
@@ -277,21 +287,60 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private async Task CaptureCoordinateAsync()
     {
-        ErrorMessage = string.Empty;
+        ActiveDialog = null;
         try
         {
             var coordinate = await _coordinatePicker.PickCoordinateAsync();
             if (coordinate is { } picked)
             {
-                ClickPatterns.Add(new Coordinate(picked.X, picked.Y));
-                SelectedPatternIndex = ClickPatterns.Count - 1;
-                CoordinatesText = $"Selected coordinate: X: {picked.X}, Y: {picked.Y}";
+                AddCoordinateToPattern(picked.X, picked.Y);
             }
         }
         catch (Exception ex)
         {
-            ErrorMessage = "Warning: " + ex.Message;
+            ShowWarning("Coordinate Capture Failed", ex.Message);
         }
+    }
+
+    [RelayCommand]
+    private void AddManualCoordinate()
+    {
+        if (IsClicking) return;
+
+        var screens = _screenBoundsProvider.GetScreens();
+        if (screens.Count > 0)
+        {
+            bool isInsideAnyScreen = screens.Any(s => s.Contains(ManualX, ManualY));
+            if (!isInsideAnyScreen)
+            {
+                var monitorList = string.Join(
+                    "\n",
+                    screens.Select(s =>
+                        $"• {s.Name}: X [{s.X}..{s.Right - 1}], Y [{s.Y}..{s.Bottom - 1}] ({s.Width}×{s.Height})"));
+
+                ShowWarning(
+                    "Coordinate Out of Bounds",
+                    $"The coordinate (X: {ManualX}, Y: {ManualY}) is outside all connected monitors.\n\nAvailable monitors:\n{monitorList}");
+                return;
+            }
+        }
+        else if (ManualX < 0 || ManualY < 0)
+        {
+            ShowWarning(
+                "Invalid Coordinate",
+                $"Monitor bounds could not be detected, and negative coordinates (X: {ManualX}, Y: {ManualY}) are not allowed.");
+            return;
+        }
+
+        AddCoordinateToPattern(ManualX, ManualY);
+    }
+
+    private void AddCoordinateToPattern(int x, int y)
+    {
+        ClickPatterns.Add(new Coordinate(x, y));
+        int addedIndex = ClickPatterns.Count - 1;
+        SelectedPatternIndex = addedIndex;
+        CoordinateAdded?.Invoke(this, addedIndex);
     }
 
     [RelayCommand]
@@ -299,7 +348,7 @@ public partial class MainViewModel : ViewModelBase
     {
         ClickPatterns.Clear();
         SelectedPatternIndex = -1;
-        ErrorMessage = string.Empty;
+        ActiveDialog = null;
     }
 
     [RelayCommand]
@@ -360,18 +409,28 @@ public partial class MainViewModel : ViewModelBase
 
         if (SelectedAction == ClickActionKind.Drag && ClickPatterns.Count < 2)
         {
-            ErrorMessage = "⚠️ Drag action requires at least 2 coordinates in the pattern (start and end points).";
+            ShowWarning(
+                "Insufficient Coordinates",
+                "Drag action requires at least 2 coordinates in the pattern (start and end points).");
             return;
         }
 
         if (_hotkeyListener is { RequiresManualSetup: true, IsHotkeyConfigured: false })
         {
-            ErrorMessage = "⚠️ Configure the emergency key before starting (see section below).";
+            ShowWarning(
+                "Emergency Key Required",
+                "Configure the emergency key before starting (see the Wayland Emergency Key section below).");
             return;
         }
 
-        ErrorMessage = string.Empty;
+        ActiveDialog = null;
         SaveCurrentSettings();
+
+        Window? mainWindow = null;
+        bool wasWindowVisible = false;
+        WindowState savedWindowState = WindowState.Normal;
+        PixelPoint? savedPosition = null;
+        bool handedOffToBackgroundLoop = false;
 
         try
         {
@@ -381,7 +440,10 @@ public partial class MainViewModel : ViewModelBase
             var validationIssues = _inputSimulator.ValidateTargets(ClickPatterns.Select(p => (p.X, p.Y)));
             if (validationIssues.Count > 0)
             {
-                ErrorMessage = "⚠️ " + validationIssues[0];
+                string details = validationIssues.Count == 1
+                    ? validationIssues[0]
+                    : $"{validationIssues[0]}\n\n({validationIssues.Count - 1} more coordinate(s) outside the shared monitor.)";
+                ShowWarning("Coordinate Outside Shared Monitor", details);
                 return;
             }
 
@@ -408,6 +470,23 @@ public partial class MainViewModel : ViewModelBase
 
             IsClicking = true;
 
+            mainWindow = GetMainWindow();
+            if (mainWindow is { IsVisible: true })
+            {
+                wasWindowVisible = true;
+                savedWindowState = mainWindow.WindowState;
+                if (savedWindowState == WindowState.Normal)
+                {
+                    savedPosition = mainWindow.Position;
+                }
+
+                // Hide the app window so targets underneath can be clicked reliably.
+                mainWindow.Hide();
+                await Task.Delay(WindowHideSettleDelayMs, cts.Token);
+            }
+
+            handedOffToBackgroundLoop = true;
+
             _ = Task.Run(async () =>
             {
                 try
@@ -421,22 +500,29 @@ public partial class MainViewModel : ViewModelBase
                 catch (Exception ex)
                 {
                     await Dispatcher.UIThread.InvokeAsync(() =>
-                        ErrorMessage = "Error in loop: " + ex.Message);
+                        ShowError("Autoclick Loop Error", ex.Message));
                 }
                 finally
                 {
                     await Dispatcher.UIThread.InvokeAsync(() =>
-                    {
-                        IsClicking = false;
-                        _hotkeyListener.StopListening();
-                    });
+                        FinishClicking(mainWindow, wasWindowVisible, savedWindowState, savedPosition));
                 }
-            });
+            }, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected if the user stops during the brief hide-settle delay before the loop starts.
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Linux compatibility failure: Could not start event injection. {ex.Message}";
-            IsClicking = false;
+            ShowError("Input Initialization Failed", $"Could not start event injection. {ex.Message}");
+        }
+        finally
+        {
+            if (!handedOffToBackgroundLoop && IsClicking)
+            {
+                FinishClicking(mainWindow, wasWindowVisible, savedWindowState, savedPosition);
+            }
         }
     }
 
@@ -452,11 +538,58 @@ public partial class MainViewModel : ViewModelBase
             // Ignore if already disposed
         }
 
-        IsClicking = false;
-        _hotkeyListener.StopListening();
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            IsClicking = false;
+            _hotkeyListener.StopListening();
+        }
+        else
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                IsClicking = false;
+                _hotkeyListener.StopListening();
+            });
+        }
     }
 
-    // ─── Wayland-specific commands ─────────────────────────────────────
+    private void FinishClicking(
+        Window? mainWindow,
+        bool wasWindowVisible,
+        WindowState savedWindowState,
+        PixelPoint? savedPosition)
+    {
+        IsClicking = false;
+        _hotkeyListener.StopListening();
+
+        if (mainWindow is not null && wasWindowVisible)
+        {
+            mainWindow.Show();
+
+            if (savedWindowState == WindowState.Maximized &&
+                mainWindow.WindowState != WindowState.Maximized)
+            {
+                mainWindow.WindowState = WindowState.Maximized;
+            }
+            else if (savedWindowState == WindowState.Normal &&
+                     savedPosition is { } pos &&
+                     mainWindow.Position != pos)
+            {
+                mainWindow.Position = pos;
+            }
+
+            mainWindow.Activate();
+        }
+    }
+
+    private static Window? GetMainWindow()
+    {
+        return Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop
+            ? desktop.MainWindow
+            : null;
+    }
+
+    // ─── Wayland-specific & Modal Dialog Commands ──────────────────────
 
     /// <summary>
     /// Attempts to configure the emergency hotkey via the GNOME GlobalShortcuts portal.
@@ -465,7 +598,7 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private async Task ConfigureWaylandHotkey()
     {
-        ErrorMessage = string.Empty;
+        ActiveDialog = null;
 
         var success = await _hotkeyListener.ConfigureHotkeyAsync();
 
@@ -477,7 +610,9 @@ public partial class MainViewModel : ViewModelBase
         }
         else
         {
-            ErrorMessage = "Portal configuration failed. Please use the manual setup below.";
+            ShowWarning(
+                "Portal Configuration Failed",
+                "Automatic portal configuration failed. Please use the manual setup below.");
         }
 
         RefreshWaylandState();
@@ -492,7 +627,7 @@ public partial class MainViewModel : ViewModelBase
     {
         _hotkeyListener.ConfirmManualSetup();
         ShowWaylandSetupDetails = false;
-        ErrorMessage = string.Empty;
+        ActiveDialog = null;
         SaveCurrentSettings();
         RefreshWaylandState();
     }
@@ -506,14 +641,28 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private void OpenPortalInfoModal()
     {
-        IsPortalInfoModalOpen = true;
+        ShowInfo(
+            "About Automatic Configuration",
+            "When you click 'Configure via Portal', Linux will ask you to set an emergency shortcut.\n\n" +
+            "However, on some systems, Linux may silently reject your key combination without warning.\n\n" +
+            "When this happens, the automatic method will no longer work for safety reasons. To fix this, simply use the 100% reliable Manual Setup described below.",
+            confirmText: "Got it!");
     }
 
     [RelayCommand]
-    private void ClosePortalInfoModal()
+    private void CloseDialog()
     {
-        IsPortalInfoModalOpen = false;
+        ActiveDialog = null;
     }
+
+    private void ShowInfo(string title, string message, string confirmText = "OK") =>
+        ActiveDialog = new DialogMessage(DialogSeverity.Info, title, message, confirmText);
+
+    private void ShowWarning(string title, string message, string confirmText = "OK") =>
+        ActiveDialog = new DialogMessage(DialogSeverity.Warning, title, message, confirmText);
+
+    private void ShowError(string title, string message, string confirmText = "OK") =>
+        ActiveDialog = new DialogMessage(DialogSeverity.Error, title, message, confirmText);
 
     // ─── Property Change Callbacks & State Synchronization ─────────────
 
@@ -523,9 +672,13 @@ public partial class MainViewModel : ViewModelBase
 
         if (value < 1)
         {
+            OnPropertyChanged(nameof(MinIntervalMs));
             MinIntervalMs = 1;
             return;
         }
+
+        // Notify MinIntervalMs listeners before updating dependent MaxIntervalMs.
+        OnPropertyChanged(nameof(MinIntervalMs));
 
         if (!RandomizeInterval || MaxIntervalMs < value)
         {
@@ -541,13 +694,16 @@ public partial class MainViewModel : ViewModelBase
 
         if (value < 1)
         {
+            OnPropertyChanged(nameof(MaxIntervalMs));
             MaxIntervalMs = 1;
             return;
         }
 
+        // Only adjust the edited field upward so editing Max never drags Min down.
         if (value < MinIntervalMs)
         {
-            MinIntervalMs = value;
+            OnPropertyChanged(nameof(MaxIntervalMs));
+            MaxIntervalMs = MinIntervalMs;
         }
     }
 

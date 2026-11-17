@@ -18,6 +18,7 @@ public sealed class ServiceLocator
 
         // 1. Register cross-platform application services and ViewModels
         services.AddSingleton<ISettingsStore, SettingsStore>();
+        services.AddSingleton<IScreenBoundsProvider, AvaloniaScreenBoundsProvider>();
         services.AddTransient<MainViewModel>();
 
         // 2. Register native implementations depending on the OS
