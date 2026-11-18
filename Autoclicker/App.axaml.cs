@@ -1,10 +1,11 @@
+using System.Linq;
+using Autoclicker.Logging;
+using Autoclicker.ViewModels;
+using Autoclicker.Views;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Data.Core.Plugins;
-using System.Linq;
 using Avalonia.Markup.Xaml;
-using Autoclicker.ViewModels;
-using Autoclicker.Views;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Autoclicker;
@@ -18,6 +19,8 @@ public class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        GlobalExceptionHooks.RegisterUiDispatcherHook();
+
         // 1. Configure services (Linux or Windows)
         ServiceLocator.ConfigureServices();
 

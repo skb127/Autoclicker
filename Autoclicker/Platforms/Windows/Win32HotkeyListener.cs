@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Autoclicker.Services;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Autoclicker.Platforms.Windows;
 
@@ -13,13 +15,19 @@ public sealed partial class Win32HotkeyListener : IHotkeyListener
 
     private const int VkEscape = 0x1B;
 
+    private readonly ILogger<Win32HotkeyListener> _logger;
     private CancellationTokenSource? _cts;
 
     public event Action? OnStopRequested;
 
+    public Win32HotkeyListener(ILogger<Win32HotkeyListener>? logger = null)
+    {
+        _logger = logger ?? NullLogger<Win32HotkeyListener>.Instance;
+    }
+
     public Task StartListening()
     {
-        Console.WriteLine(" Starting to listen for the ESCAPE key...");
+        _logger.LogInformation("Started listening for ESCAPE hotkey on Win32");
         _cts = new CancellationTokenSource();
 
         _ = Task.Run(() => ListenLoop(_cts.Token));
@@ -33,7 +41,7 @@ public sealed partial class Win32HotkeyListener : IHotkeyListener
         _cts?.Dispose();
         _cts = null;
 
-        Console.WriteLine(" Stopped listening to the keyboard.");
+        _logger.LogInformation("Stopped listening for ESCAPE hotkey on Win32");
     }
 
     private async Task ListenLoop(CancellationToken token)
@@ -44,6 +52,7 @@ public sealed partial class Win32HotkeyListener : IHotkeyListener
             {
                 if ((GetAsyncKeyState(VkEscape) & 0x8000) != 0)
                 {
+                    _logger.LogInformation("Emergency stop hotkey (ESCAPE) triggered");
                     OnStopRequested?.Invoke();
                     await Task.Delay(500, token);
                 }
@@ -57,7 +66,7 @@ public sealed partial class Win32HotkeyListener : IHotkeyListener
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error in Win32 listener loop: {ex.Message}");
+                _logger.LogError(ex, "Error in Win32 hotkey listener loop");
                 break;
             }
         }

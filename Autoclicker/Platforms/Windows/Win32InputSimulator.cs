@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Autoclicker.Core;
 using Autoclicker.Services;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Autoclicker.Platforms.Windows;
 
@@ -56,13 +58,21 @@ public sealed partial class Win32InputSimulator : IInputSimulator
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool GetCursorPos(out NativePoint lpPoint);
 
+    private readonly ILogger<Win32InputSimulator> _logger;
     private int _lastX;
     private int _lastY;
     private bool _hasLastPosition;
+    private bool _loggedSendInputFailure;
+
+    public Win32InputSimulator(ILogger<Win32InputSimulator>? logger = null)
+    {
+        _logger = logger ?? NullLogger<Win32InputSimulator>.Instance;
+    }
 
     public Task InitializeAsync()
     {
         // Windows does not require negotiating asynchronous interactive permissions like Wayland
+        _loggedSendInputFailure = false;
         return Task.CompletedTask;
     }
 
@@ -81,7 +91,13 @@ public sealed partial class Win32InputSimulator : IInputSimulator
         inputs[0].mi.dy = absoluteY;
         inputs[0].mi.dwFlags = MouseEventFlags.Move | MouseEventFlags.Absolute;
 
-        SendInput(1, inputs, Marshal.SizeOf<Input>());
+        uint sent = SendInput(1, inputs, Marshal.SizeOf<Input>());
+        if (sent == 0 && !_loggedSendInputFailure)
+        {
+            _loggedSendInputFailure = true;
+            _logger.LogWarning(
+                "Win32 SendInput returned 0 events inserted; input injection may be blocked by Windows UIPI (target window running with higher privileges)");
+        }
 
         _lastX = x;
         _lastY = y;
@@ -106,7 +122,14 @@ public sealed partial class Win32InputSimulator : IInputSimulator
         inputs[0].type = 0; // 0 = INPUT_MOUSE
         inputs[0].mi.dwFlags = flag;
 
-        SendInput(1, inputs, Marshal.SizeOf<Input>());
+        uint sent = SendInput(1, inputs, Marshal.SizeOf<Input>());
+        if (sent == 0 && !_loggedSendInputFailure)
+        {
+            _loggedSendInputFailure = true;
+            _logger.LogWarning(
+                "Win32 SendInput returned 0 events inserted; input injection may be blocked by Windows UIPI (target window running with higher privileges)");
+        }
+
         return Task.CompletedTask;
     }
 

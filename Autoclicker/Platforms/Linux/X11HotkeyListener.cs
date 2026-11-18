@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Autoclicker.Services;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Autoclicker.Platforms.Linux;
 
@@ -17,20 +19,26 @@ public sealed partial class X11HotkeyListener : IHotkeyListener
     [LibraryImport("libX11.so.6")]
     private static partial int XCloseDisplay(IntPtr display);
 
+    private readonly ILogger<X11HotkeyListener> _logger;
     private IntPtr _display;
     private CancellationTokenSource? _cts;
-    
+
     public event Action? OnStopRequested;
+
+    public X11HotkeyListener(ILogger<X11HotkeyListener>? logger = null)
+    {
+        _logger = logger ?? NullLogger<X11HotkeyListener>.Instance;
+    }
 
     public Task StartListening()
     {
-        Console.WriteLine(" Starting to listen for the ESCAPE key...");
+        _logger.LogInformation("Started listening for ESCAPE hotkey on X11");
         if (_cts is { IsCancellationRequested: false }) return Task.CompletedTask;
 
         _display = XOpenDisplay(null);
         if (_display == IntPtr.Zero)
         {
-            Console.WriteLine("Warning: Could not open X11 display for hotkey listener. Hotkey will not work.");
+            _logger.LogWarning("Could not open X11 display for hotkey listener; emergency ESCAPE hotkey will not work");
             return Task.CompletedTask;
         }
 
@@ -52,7 +60,7 @@ public sealed partial class X11HotkeyListener : IHotkeyListener
             _display = IntPtr.Zero;
         }
 
-        Console.WriteLine(" Stopped listening to the keyboard.");
+        _logger.LogInformation("Stopped listening for ESCAPE hotkey on X11");
     }
 
     private async Task ListenLoop(CancellationToken token)
@@ -68,6 +76,7 @@ public sealed partial class X11HotkeyListener : IHotkeyListener
 
                 if ((keymap[escKeyCode / 8] & (1 << (escKeyCode % 8))) != 0)
                 {
+                    _logger.LogInformation("Emergency stop hotkey (ESCAPE) triggered");
                     OnStopRequested?.Invoke();
                     await Task.Delay(500, token); // Pause to avoid multiple triggers
                 }
@@ -80,7 +89,7 @@ public sealed partial class X11HotkeyListener : IHotkeyListener
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error in X11 listener loop: {ex.Message}");
+                _logger.LogError(ex, "Error in X11 hotkey listener loop");
                 break;
             }
         }

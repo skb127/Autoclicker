@@ -9,6 +9,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using Microsoft.Extensions.Logging;
 
 namespace Autoclicker.Platforms.Linux;
 
@@ -60,21 +61,24 @@ public static class WaylandPointerCalibrator
 
     public static async Task<WaylandCalibrationResult?> CalibrateAsync(
         WaylandInputSimulator simulator,
-        PortalStreamInfo streamInfo)
+        PortalStreamInfo streamInfo,
+        ILogger? logger = null)
     {
         // 1. Try deterministic direct matching first (instantaneous, zero cursor movement)
-        var directMatch = await TryDeterministicScreenMatchAsync(streamInfo);
+        var directMatch = await TryDeterministicScreenMatchAsync(streamInfo, logger);
         if (directMatch is not null)
         {
             return directMatch;
         }
 
         // 2. Fallback to hardened sensor probe when mapping_id is not provided on multi-monitor setups
-        return await ProbeWithSensorWindowsAsync(simulator, streamInfo);
+        logger?.LogInformation("Direct Wayland screen match unavailable; starting XWayland sensor window probe");
+        return await ProbeWithSensorWindowsAsync(simulator, streamInfo, logger);
     }
 
     private static async Task<WaylandCalibrationResult?> TryDeterministicScreenMatchAsync(
-        PortalStreamInfo streamInfo)
+        PortalStreamInfo streamInfo,
+        ILogger? logger)
     {
         if (streamInfo.Width <= 0 || streamInfo.Height <= 0)
         {
@@ -123,9 +127,13 @@ public static class WaylandPointerCalibrator
                 return null;
             }
 
-            Console.WriteLine(
-                $"Wayland exact screen match ('{matchedScreen.DisplayName ?? "Single"}'): " +
-                $"Bounds={bounds}, StreamSize={streamInfo.Width}x{streamInfo.Height} => {transform.Value}");
+            logger?.LogInformation(
+                "Wayland exact screen match {DisplayName}: Bounds={Bounds}, StreamSize={StreamWidth}x{StreamHeight}, Transform={Transform}",
+                matchedScreen.DisplayName ?? "Single",
+                bounds,
+                streamInfo.Width,
+                streamInfo.Height,
+                transform.Value);
 
             return new WaylandCalibrationResult(
                 transform.Value,
@@ -136,7 +144,8 @@ public static class WaylandPointerCalibrator
 
     private static async Task<WaylandCalibrationResult?> ProbeWithSensorWindowsAsync(
         WaylandInputSimulator simulator,
-        PortalStreamInfo streamInfo)
+        PortalStreamInfo streamInfo,
+        ILogger? logger)
     {
         (double X, double Y) streamPoint1;
         (double X, double Y) streamPoint2;
@@ -183,12 +192,13 @@ public static class WaylandPointerCalibrator
                     };
 
                     var capturedScreen = screen;
+                    var probeTcs = activeProbeTcs;
                     win.PointerMoved += (_, e) =>
                     {
                         var localPos = e.GetPosition(win);
                         var globalPixel = win.PointToScreen(localPos);
 
-                        var tcs = activeProbeTcs;
+                        var tcs = probeTcs;
                         if (tcs is null || tcs.Task.IsCompleted)
                         {
                             // Record initial XWayland motion while settling so we can ignore it later
@@ -233,7 +243,7 @@ public static class WaylandPointerCalibrator
 
             if (sample1 is null)
             {
-                Console.WriteLine("Wayland calibration warning: did not receive XWayland motion event for probe 1.");
+                logger?.LogWarning("Wayland calibration did not receive XWayland motion event for probe 1");
                 return null;
             }
 
@@ -253,9 +263,13 @@ public static class WaylandPointerCalibrator
 
                 if (exactTransform is not null)
                 {
-                    Console.WriteLine(
-                        $"Wayland probe identified screen '{detectedScreen.DisplayName ?? "Unknown"}' " +
-                        $"(Bounds={bounds}, StreamSize={streamInfo.Width}x{streamInfo.Height}) => {exactTransform.Value}");
+                    logger?.LogInformation(
+                        "Wayland probe identified screen {DisplayName}: Bounds={Bounds}, StreamSize={StreamWidth}x{StreamHeight}, Transform={Transform}",
+                        detectedScreen.DisplayName ?? "Unknown",
+                        bounds,
+                        streamInfo.Width,
+                        streamInfo.Height,
+                        exactTransform.Value);
 
                     return new WaylandCalibrationResult(
                         exactTransform.Value,
@@ -274,7 +288,7 @@ public static class WaylandPointerCalibrator
 
             if (sample2 is null)
             {
-                Console.WriteLine("Wayland calibration warning: did not receive XWayland motion event for probe 2.");
+                logger?.LogWarning("Wayland calibration did not receive XWayland motion event for probe 2");
                 return null;
             }
 
@@ -284,14 +298,23 @@ public static class WaylandPointerCalibrator
             var transform = AxisTransform.FromSamples(streamPoint1, g1, streamPoint2, g2);
             if (transform is null)
             {
-                Console.WriteLine(
-                    $"Wayland calibration rejected anisotropic/invalid samples: S1={streamPoint1}->G1={g1}, S2={streamPoint2}->G2={g2}");
+                logger?.LogWarning(
+                    "Wayland calibration rejected anisotropic/invalid samples: S1={StreamPoint1}->G1={GlobalPoint1}, S2={StreamPoint2}->G2={GlobalPoint2}",
+                    streamPoint1,
+                    g1,
+                    streamPoint2,
+                    g2);
                 return null;
             }
 
             var screen2 = sample2.Value.Screen;
-            Console.WriteLine(
-                $"Wayland two-point calibration succeeded: S1={streamPoint1}->G1={g1}, S2={streamPoint2}->G2={g2} => {transform.Value}");
+            logger?.LogInformation(
+                "Wayland two-point calibration succeeded: S1={StreamPoint1}->G1={GlobalPoint1}, S2={StreamPoint2}->G2={GlobalPoint2}, Transform={Transform}",
+                streamPoint1,
+                g1,
+                streamPoint2,
+                g2,
+                transform.Value);
 
             return new WaylandCalibrationResult(
                 transform.Value,
@@ -300,12 +323,11 @@ public static class WaylandPointerCalibrator
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Wayland calibration error: {ex.Message}");
+            logger?.LogWarning(ex, "Wayland calibration error");
             return null;
         }
         finally
         {
-            activeProbeTcs = null;
             if (sensorWindows.Count > 0)
             {
                 await Dispatcher.UIThread.InvokeAsync(() =>
@@ -316,9 +338,9 @@ public static class WaylandPointerCalibrator
                         {
                             win.Close();
                         }
-                        catch
+                        catch (Exception ex)
                         {
-                            // Ignore errors closing temporary calibration windows
+                            logger?.LogWarning(ex, "Failed to close temporary Wayland calibration sensor window");
                         }
                     }
                 });

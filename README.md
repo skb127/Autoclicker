@@ -19,6 +19,19 @@ Cross-platform desktop autoclicker built with **Avalonia UI** and **.NET 8** for
 dotnet run --project Autoclicker.Desktop/Autoclicker.Desktop.csproj
 ```
 
+## Logs
+
+Autoclicker writes rolling log files (up to 7 daily files, 5 MB per file with automatic size rollover):
+
+- **Windows:** `%LOCALAPPDATA%\Autoclicker\logs\autoclicker-YYYYMMDD.log`
+- **Linux:** `$XDG_STATE_HOME/Autoclicker/logs/autoclicker-YYYYMMDD.log` (defaults to `~/.local/state/Autoclicker/logs/`)
+
+The default log level is `Information`. To enable `Debug` (or `Verbose`, `Warning`, `Error`, `Fatal`) logging for troubleshooting, set the `AUTOCLICKER_LOG_LEVEL` environment variable:
+
+```bash
+AUTOCLICKER_LOG_LEVEL=Debug dotnet run --project Autoclicker.Desktop/Autoclicker.Desktop.csproj
+```
+
 ## Wayland Notes
 
 - **Screen Sharing Permission:** On first start, select the monitor where your pattern coordinates are located and enable pointer control.

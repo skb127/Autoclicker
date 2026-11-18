@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 using Autoclicker.Core;
 using Autoclicker.Services;
 using Avalonia;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Tmds.DBus;
 
 namespace Autoclicker.Platforms.Linux
@@ -48,7 +50,7 @@ namespace Autoclicker.Platforms.Linux
         uint SourceType,
         string? MappingId)
     {
-        public static PortalStreamInfo Parse(object rawStreamEntry)
+        public static PortalStreamInfo Parse(object rawStreamEntry, ILogger? logger = null)
         {
             dynamic entry = rawStreamEntry;
             uint streamId = (uint)entry.Item1;
@@ -66,9 +68,10 @@ namespace Autoclicker.Platforms.Linux
                     logParts.Add($"{kv.Key}={FormatPortalValue(kv.Value)}");
                 }
 
-                Console.WriteLine(
-                    $"Wayland portal stream [{streamId}] properties: " +
-                    (logParts.Count > 0 ? string.Join(", ", logParts) : "(none)"));
+                logger?.LogInformation(
+                    "Wayland portal stream {StreamId} properties: {Properties}",
+                    streamId,
+                    logParts.Count > 0 ? string.Join(", ", logParts) : "(none)");
 
                 if (props.TryGetValue("position", out object? posObj) &&
                     TryExtractIntPair(posObj, out int px, out int py))
@@ -90,9 +93,9 @@ namespace Autoclicker.Platforms.Linux
                     {
                         sourceType = Convert.ToUInt32(stObj);
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        /* ignore */
+                        logger?.LogWarning(ex, "Failed to parse Wayland portal stream source_type");
                     }
                 }
 
@@ -179,6 +182,7 @@ namespace Autoclicker.Platforms.Linux
 
         private static readonly IDictionary<string, object> EmptyOptions = new Dictionary<string, object>();
 
+        private readonly ILogger<WaylandInputSimulator> _logger;
         private Connection? _connection;
         private ConnectionInfo? _connectionInfo;
         private IRemoteDesktopPortal? _portal;
@@ -196,19 +200,24 @@ namespace Autoclicker.Platforms.Linux
         private int _lastY;
         private bool _hasLastPosition;
 
+        public WaylandInputSimulator(ILogger<WaylandInputSimulator>? logger = null)
+        {
+            _logger = logger ?? NullLogger<WaylandInputSimulator>.Instance;
+        }
+
         public async Task InitializeAsync()
         {
             // Reuse the existing portal session if it is already active and calibrated
             if (_isSessionActive && _portal is not null && _streamInfo is not null)
             {
                 _hasLastPosition = false;
-                Console.WriteLine($"Reusing active Wayland portal session (Stream {_streamId}).");
+                _logger.LogInformation("Reusing active Wayland portal session (Stream {StreamId})", _streamId);
                 return;
             }
 
             ResetSession();
 
-            Console.WriteLine("Connecting to Wayland portals...");
+            _logger.LogInformation("Connecting to Wayland portals");
             _connection = new Connection(Address.Session);
             _connectionInfo = await _connection.ConnectAsync();
 
@@ -276,9 +285,9 @@ namespace Autoclicker.Platforms.Linux
                     if (streamsArray.Length > 0)
                     {
                         object firstStreamObj = streamsArray.GetValue(0)!;
-                        _streamInfo = PortalStreamInfo.Parse(firstStreamObj);
+                        _streamInfo = PortalStreamInfo.Parse(firstStreamObj, _logger);
                         _streamId = _streamInfo.StreamId;
-                        Console.WriteLine($"Stream ID obtained successfully: {_streamId}");
+                        _logger.LogInformation("Wayland portal stream ID obtained: {StreamId}", _streamId);
                     }
                     else
                     {
@@ -298,7 +307,7 @@ namespace Autoclicker.Platforms.Linux
             // Resolve global-to-stream coordinate mapping (direct match by mapping_id/size, or sensor probe)
             if (_streamInfo is not null)
             {
-                var calibration = await WaylandPointerCalibrator.CalibrateAsync(this, _streamInfo);
+                var calibration = await WaylandPointerCalibrator.CalibrateAsync(this, _streamInfo, _logger);
                 if (calibration is not null)
                 {
                     _transform = calibration.Transform;
@@ -310,13 +319,15 @@ namespace Autoclicker.Platforms.Linux
                     _transform = _streamInfo.CreateStaticFallbackTransform();
                     _sharedMonitorGlobalBounds = null;
                     _sharedMonitorName = null;
-                    Console.WriteLine($"Using static fallback stream transform: {_transform}");
+                    _logger.LogWarning(
+                        "Wayland calibration unavailable; using static fallback stream transform {Transform}",
+                        _transform);
                 }
             }
 
             _hasLastPosition = false;
             _isSessionActive = true;
-            Console.WriteLine("Wayland session started. Permissions granted.");
+            _logger.LogInformation("Wayland portal session started with pointer control permissions granted");
         }
 
         /// <summary>
@@ -338,8 +349,7 @@ namespace Autoclicker.Platforms.Linux
             }
             catch (Exception ex)
             {
-                string errorMsg = ex.InnerException?.Message ?? ex.Message;
-                Console.WriteLine($"Error injecting calibration pointer motion: {errorMsg}");
+                _logger.LogWarning(ex, "Error injecting calibration pointer motion");
             }
         }
 
@@ -373,7 +383,7 @@ namespace Autoclicker.Platforms.Linux
             catch (Exception ex)
             {
                 string errorMsg = ex.InnerException?.Message ?? ex.Message;
-                Console.WriteLine($"Error injecting pointer motion: {errorMsg}");
+                _logger.LogWarning(ex, "Error injecting pointer motion");
                 // Mark session inactive if the portal rejected the call because the user stopped sharing
                 if (errorMsg.Contains("Invalid session", StringComparison.OrdinalIgnoreCase) ||
                     errorMsg.Contains("Closed", StringComparison.OrdinalIgnoreCase))
@@ -402,7 +412,7 @@ namespace Autoclicker.Platforms.Linux
             catch (Exception ex)
             {
                 string errorMsg = ex.InnerException?.Message ?? ex.Message;
-                Console.WriteLine($"Error injecting pointer button: {errorMsg}");
+                _logger.LogWarning(ex, "Error injecting pointer button");
                 if (errorMsg.Contains("Invalid session", StringComparison.OrdinalIgnoreCase) ||
                     errorMsg.Contains("Closed", StringComparison.OrdinalIgnoreCase))
                 {
@@ -467,6 +477,9 @@ namespace Autoclicker.Platforms.Linux
             // prompts the user to select the appropriate monitor in the portal dialog.
             if (issues.Count > 0)
             {
+                _logger.LogWarning(
+                    "Target validation failed with {IssueCount} issue(s); resetting Wayland portal session",
+                    issues.Count);
                 ResetSession();
             }
 
@@ -484,9 +497,9 @@ namespace Autoclicker.Platforms.Linux
             {
                 _connection?.Dispose();
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore disposal errors
+                _logger.LogWarning(ex, "Error disposing Wayland D-Bus connection during session reset");
             }
 
             _connection = null;

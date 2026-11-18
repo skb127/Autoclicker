@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Autoclicker.Core;
 using Autoclicker.Services;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Autoclicker.Platforms.Linux;
 
@@ -41,10 +43,16 @@ public sealed partial class X11InputSimulator : IInputSimulator
         [MarshalAs(UnmanagedType.Bool)] bool isPress,
         int delay);
 
+    private readonly ILogger<X11InputSimulator> _logger;
     private IntPtr _display;
     private int _lastX;
     private int _lastY;
     private bool _hasLastPosition;
+
+    public X11InputSimulator(ILogger<X11InputSimulator>? logger = null)
+    {
+        _logger = logger ?? NullLogger<X11InputSimulator>.Instance;
+    }
 
     public Task InitializeAsync()
     {
@@ -57,8 +65,11 @@ public sealed partial class X11InputSimulator : IInputSimulator
             _display = XOpenDisplay(null);
             if (_display == IntPtr.Zero)
             {
+                _logger.LogError("Could not open connection to the X11 server");
                 throw new Exception("Could not open connection to the X11 server.");
             }
+
+            _logger.LogInformation("Connected to X11 display");
         }
 
         return Task.CompletedTask;
@@ -132,9 +143,10 @@ public sealed partial class X11InputSimulator : IInputSimulator
                     return true;
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 // Fall back to last recorded position below
+                _logger.LogWarning(ex, "XQueryPointer failed; falling back to last recorded cursor position");
             }
         }
 

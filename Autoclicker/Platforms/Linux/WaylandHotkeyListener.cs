@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Autoclicker.Services;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Tmds.DBus;
 
 namespace Autoclicker.Platforms.Linux;
@@ -68,6 +70,7 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
     private const string AppId = "com.autoclicker.app";
 
     private readonly WaylandDbusStopService _dbusService;
+    private readonly ILogger<WaylandHotkeyListener> _logger;
 
     // Portal state
     private IGlobalShortcutsPortal? _portal;
@@ -85,13 +88,16 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
     public bool IsPortalAvailable => _isPortalAvailable;
     public string SetupInstructions => WaylandDbusStopService.StopCommand;
 
-    public WaylandHotkeyListener(WaylandDbusStopService dbusService)
+    public WaylandHotkeyListener(
+        WaylandDbusStopService dbusService,
+        ILogger<WaylandHotkeyListener>? logger = null)
     {
         _dbusService = dbusService;
+        _logger = logger ?? NullLogger<WaylandHotkeyListener>.Instance;
 
         _dbusService.OnStopReceived += () =>
         {
-            Console.WriteLine("Emergency stop via D-Bus!");
+            _logger.LogInformation("Emergency stop triggered via D-Bus");
             OnStopRequested?.Invoke();
         };
     }
@@ -109,14 +115,19 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
         if (TryDetectExistingSystemShortcut())
         {
             _isHotkeyConfigured = true;
-            Console.WriteLine("Existing system custom shortcut detected — emergency key marked as ready.");
+            _logger.LogInformation("Existing system custom shortcut detected; emergency key marked as ready");
         }
 
         _isPortalAvailable = await ProbePortalAvailableAsync();
 
-        Console.WriteLine(_isPortalAvailable
-            ? "GlobalShortcuts portal detected — 'Configure via Portal' button enabled."
-            : "GlobalShortcuts portal not supported by current desktop backend — using D-Bus shortcut.");
+        if (_isPortalAvailable)
+        {
+            _logger.LogInformation("GlobalShortcuts portal detected; 'Configure via Portal' button enabled");
+        }
+        else
+        {
+            _logger.LogInformation("GlobalShortcuts portal not supported by current desktop backend; using D-Bus shortcut");
+        }
     }
 
     // Portal Configuration (called from UI button)
@@ -130,7 +141,7 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
     {
         try
         {
-            Console.WriteLine("Starting portal shortcut configuration...");
+            _logger.LogInformation("Starting GlobalShortcuts portal shortcut configuration");
 
             var connection = _dbusService.Connection;
             if (connection == null)
@@ -148,12 +159,13 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
                     "org.freedesktop.portal.Desktop",
                     "/org/freedesktop/portal/desktop");
                 await registry.RegisterAsync(AppId, new Dictionary<string, object>());
-                Console.WriteLine($"App identity registered via host portal registry: {AppId}");
+                _logger.LogInformation("App identity registered via host portal registry: {AppId}", AppId);
             }
             catch (Exception regEx)
             {
-                Console.WriteLine(
-                    $"Note: org.freedesktop.host.portal.Registry not available ({regEx.Message}); continuing without explicit host registration.");
+                _logger.LogInformation(
+                    "Host portal registry not available ({Reason}); continuing without explicit host registration",
+                    regEx.Message);
             }
 
             _portal = connection.CreateProxy<IGlobalShortcutsPortal>(
@@ -170,7 +182,7 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
                 })
             );
             _sessionHandle = new ObjectPath(sessionResults["session_handle"].ToString()!);
-            Console.WriteLine("GlobalShortcuts session created.");
+            _logger.LogInformation("GlobalShortcuts session created");
 
             var shortcuts = new (string, IDictionary<string, object>)[]
             {
@@ -183,7 +195,7 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
 
             try
             {
-                Console.WriteLine("Waiting for shortcut configuration dialog...");
+                _logger.LogInformation("Waiting for portal shortcut configuration dialog");
                 await CallPortalAsync(token =>
                         _portal.BindShortcutsAsync(_sessionHandle, shortcuts, "", new Dictionary<string, object>
                         {
@@ -200,7 +212,14 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
                 var sessionProxy = connection.CreateProxy<IPortalSession>(
                     "org.freedesktop.portal.Desktop",
                     _sessionHandle);
-                try { await sessionProxy.CloseAsync(); } catch { /* Ignore */ }
+                try
+                {
+                    await sessionProxy.CloseAsync();
+                }
+                catch (Exception closeEx)
+                {
+                    _logger.LogWarning(closeEx, "Failed to close aborted GlobalShortcuts portal session");
+                }
                 throw;
             }
 
@@ -209,20 +228,20 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
                 {
                     if (args.shortcutId == "stop-autoclicker-v2")
                     {
-                        Console.WriteLine("Portal global shortcut triggered!");
+                        _logger.LogInformation("Portal global shortcut {ShortcutId} triggered", args.shortcutId);
                         OnStopRequested?.Invoke();
                     }
                 },
-                ex => Console.WriteLine($"Portal subscription error: {ex.Message}")
+                ex => _logger.LogWarning(ex, "Portal GlobalShortcuts subscription error")
             );
 
             _isHotkeyConfigured = true;
-            Console.WriteLine("Portal shortcut configured successfully!");
+            _logger.LogInformation("Portal shortcut configured successfully");
             return true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Portal configuration failed: {ex.Message}");
+            _logger.LogWarning(ex, "Portal GlobalShortcuts configuration failed");
             _isPortalAvailable = false;
             return false;
         }
@@ -236,7 +255,7 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
     public void ConfirmManualSetup()
     {
         _isHotkeyConfigured = true;
-        Console.WriteLine("Manual D-Bus shortcut confirmed.");
+        _logger.LogInformation("Manual D-Bus shortcut confirmed");
     }
 
     // StartListening / StopListening
@@ -285,8 +304,9 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
             uint version = Convert.ToUInt32(versionObj);
             return version >= 1;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogInformation("GlobalShortcuts portal probe returned unavailable ({Reason})", ex.Message);
             return false;
         }
     }
@@ -295,7 +315,7 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
     /// Checks whether the user has already configured the D-Bus stop command in their desktop's
     /// custom shortcuts configuration (for example, COSMIC's <c>Shortcuts/v1/custom</c> file).
     /// </summary>
-    private static bool TryDetectExistingSystemShortcut()
+    private bool TryDetectExistingSystemShortcut()
     {
         try
         {
@@ -323,9 +343,10 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
             // Ignore file read errors and fall back to persisted or manual confirmation
+            _logger.LogWarning(ex, "Could not inspect existing COSMIC custom shortcuts file");
         }
 
         return false;

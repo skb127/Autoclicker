@@ -5,6 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Autoclicker.Services;
 using Autoclicker.ViewModels;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Autoclicker.Core;
 
@@ -12,7 +14,7 @@ namespace Autoclicker.Core;
 /// Executes individual mouse actions (movement, jitter, click, double-click, hold, and drag)
 /// and runs the start-to-start deadline loop across the configured coordinate pattern.
 /// </summary>
-public sealed class ClickEngine
+public sealed partial class ClickEngine
 {
     // Short pauses (in ms) after pressing and before releasing during a drag so the target
     // application and window manager reliably register the grab and drop events.
@@ -26,11 +28,16 @@ public sealed class ClickEngine
 
     private readonly IInputSimulator _simulator;
     private readonly Random _rng;
+    private readonly ILogger<ClickEngine> _logger;
 
-    public ClickEngine(IInputSimulator simulator, Random? rng = null)
+    public ClickEngine(
+        IInputSimulator simulator,
+        Random? rng = null,
+        ILogger<ClickEngine>? logger = null)
     {
         _simulator = simulator;
         _rng = rng ?? Random.Shared;
+        _logger = logger ?? NullLogger<ClickEngine>.Instance;
     }
 
     /// <summary>
@@ -48,6 +55,8 @@ public sealed class ClickEngine
         CancellationToken ct)
     {
         if (pattern.Count == 0) return;
+
+        LogLoopStarted(_logger, settings.Action, settings.Button, pattern.Count, settings.Repetitions);
 
         var intervalProvider = new IntervalProvider(
             settings.EffectiveMinIntervalMs,
@@ -94,6 +103,8 @@ public sealed class ClickEngine
                 break;
             }
         }
+
+        LogLoopCompleted(_logger, completedRepeats);
     }
 
     private async Task ExecutePointActionAsync(
@@ -103,6 +114,8 @@ public sealed class ClickEngine
     {
         // 1. Apply optional coordinate jitter (+/- JitterPx)
         var (targetX, targetY) = ApplyJitter(point, settings.JitterPx);
+
+        LogPointAction(_logger, settings.Action, settings.Button, targetX, targetY);
 
         // 2. Move cursor to target (human trajectory if enabled and starting position is known, otherwise direct jump)
         await MoveCursorAsync(targetX, targetY, settings, ct);
@@ -143,6 +156,8 @@ public sealed class ClickEngine
     {
         if (pattern.Count < 2) return;
 
+        LogDragSequence(_logger, pattern.Count);
+
         // 1. Move to the starting coordinate (with the mouse button released)
         var (startX, startY) = ApplyJitter(pattern[0], settings.JitterPx);
         await MoveCursorAsync(startX, startY, settings, ct);
@@ -181,9 +196,10 @@ public sealed class ClickEngine
             {
                 await _simulator.ButtonAsync(MouseButtonKind.Left, isDown: false);
             }
-            catch
+            catch (Exception ex)
             {
                 // Best-effort release on shutdown
+                LogButtonReleaseFailed(_logger, ex, MouseButtonKind.Left);
             }
         }
     }
@@ -325,10 +341,55 @@ public sealed class ClickEngine
             {
                 await _simulator.ButtonAsync(button, isDown: false);
             }
-            catch
+            catch (Exception ex)
             {
                 // Best-effort release on shutdown
+                LogButtonReleaseFailed(_logger, ex, button);
             }
         }
     }
+
+    [LoggerMessage(
+        EventId = 1001,
+        Level = LogLevel.Information,
+        Message =
+            "Click engine started: Action={Action}, Button={Button}, Points={PointCount}, Repetitions={Repetitions}")]
+    private static partial void LogLoopStarted(
+        ILogger logger,
+        ClickActionKind action,
+        MouseButtonKind button,
+        int pointCount,
+        int repetitions);
+
+    [LoggerMessage(
+        EventId = 1002,
+        Level = LogLevel.Information,
+        Message = "Click engine completed {CompletedRepeats} repetition(s)")]
+    private static partial void LogLoopCompleted(ILogger logger, int completedRepeats);
+
+    [LoggerMessage(
+        EventId = 1003,
+        Level = LogLevel.Debug,
+        Message = "Executing {Action} ({Button}) at ({X}, {Y})")]
+    private static partial void LogPointAction(
+        ILogger logger,
+        ClickActionKind action,
+        MouseButtonKind button,
+        int x,
+        int y);
+
+    [LoggerMessage(
+        EventId = 1004,
+        Level = LogLevel.Debug,
+        Message = "Executing drag sequence across {PointCount} points")]
+    private static partial void LogDragSequence(ILogger logger, int pointCount);
+
+    [LoggerMessage(
+        EventId = 1005,
+        Level = LogLevel.Warning,
+        Message = "Best-effort release of {Button} button failed during shutdown")]
+    private static partial void LogButtonReleaseFailed(
+        ILogger logger,
+        Exception ex,
+        MouseButtonKind button);
 }

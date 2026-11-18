@@ -9,6 +9,8 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Autoclicker.Platforms.Common;
 
@@ -17,6 +19,13 @@ public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
     // Brief delay after hiding MainWindow so the OS/compositor repaints the desktop
     // underneath before the translucent capture overlays appear.
     private const int HideSettleDelayMs = 120;
+
+    private readonly ILogger<CrossPlatformCoordinatePicker> _logger;
+
+    public CrossPlatformCoordinatePicker(ILogger<CrossPlatformCoordinatePicker>? logger = null)
+    {
+        _logger = logger ?? NullLogger<CrossPlatformCoordinatePicker>.Instance;
+    }
 
     public async Task<(int X, int Y)?> PickCoordinateAsync()
     {
@@ -45,15 +54,17 @@ public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
                 {
                     win.Close();
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Ignore errors when closing sibling overlay windows
+                    _logger.LogWarning(ex, "Failed to close coordinate picker overlay window");
                 }
             }
         }
 
         try
         {
+            _logger.LogInformation("Starting coordinate capture across {ScreenCount} screen(s)", screens.Count);
+
             if (mainWindow is not null && wasMainWindowVisible)
             {
                 mainWindow.Hide();
@@ -64,14 +75,14 @@ public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
             {
                 foreach (var screen in screens)
                 {
-                    var window = CreateOverlayForScreen(screen, tcs);
+                    var window = CreateOverlayForScreen(screen, tcs, _logger);
                     overlayWindows.Add(window);
                 }
             }
             else
             {
                 // Fallback if screen enumeration is unavailable
-                var fallbackWindow = CreateOverlayForScreen(null, tcs);
+                var fallbackWindow = CreateOverlayForScreen(null, tcs, _logger);
                 overlayWindows.Add(fallbackWindow);
             }
 
@@ -124,7 +135,8 @@ public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
 
     private static Window CreateOverlayForScreen(
         Screen? screen,
-        TaskCompletionSource<(int X, int Y)?> tcs)
+        TaskCompletionSource<(int X, int Y)?> tcs,
+        ILogger<CrossPlatformCoordinatePicker> logger)
     {
         var liveCoordText = new TextBlock
         {
@@ -247,6 +259,7 @@ public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
             if (props.IsRightButtonPressed)
             {
                 // Right-click also cancels coordinate capture
+                logger.LogInformation("Coordinate capture canceled by user (right-click)");
                 tcs.TrySetResult(null);
                 return;
             }
@@ -254,10 +267,14 @@ public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
             var localPos = e.GetPosition(overlayWindow);
             var screenPoint = overlayWindow.PointToScreen(localPos);
 
-            Console.WriteLine(
-                $"Coordinate picked: (X: {screenPoint.X}, Y: {screenPoint.Y}) on screen " +
-                $"'{screen?.DisplayName ?? "Fallback"}' [Bounds={screen?.Bounds}, Scaling={screen?.Scaling}, " +
-                $"ActualTransparency={overlayWindow.ActualTransparencyLevel}]");
+            logger.LogInformation(
+                "Coordinate picked at ({X}, {Y}) on screen {ScreenName} (Bounds={Bounds}, Scaling={Scaling}, Transparency={ActualTransparency})",
+                screenPoint.X,
+                screenPoint.Y,
+                screen?.DisplayName ?? "Fallback",
+                screen?.Bounds,
+                screen?.Scaling,
+                overlayWindow.ActualTransparencyLevel);
 
             tcs.TrySetResult((screenPoint.X, screenPoint.Y));
         };
@@ -267,7 +284,7 @@ public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
             if (e.Key == Key.Escape)
             {
                 e.Handled = true;
-                Console.WriteLine("Coordinate capture canceled by user (Escape).");
+                logger.LogInformation("Coordinate capture canceled by user (Escape)");
                 tcs.TrySetResult(null);
             }
         };

@@ -57,9 +57,16 @@ This document tracks ideas and enhancements planned for future phases of **Autoc
 
 ## 7. Automated Unit Test Suite (`Autoclicker.Tests`)
 
-- Add an xUnit test project targeting the pure platform-agnostic classes in `Autoclicker/Core/`:
+- `Autoclicker.Tests` is initialized with logging and `SettingsStore` error-logging tests (`SettingsStoreLoggingTests`, `LogPathsAndLevelTests`).
+- Expand the suite to cover the remaining pure platform-agnostic classes in `Autoclicker/Core/`:
   - `AxisTransformTests`: verify `FromScreenAndStreamSize`, `FromSamples`, `ToStream`, `ToGlobal`, and invalid/anisotropic scale rejection.
   - `IntervalProviderTests`: verify bounds `[Min, Max]`, `Min == Max` constant behavior, and Gaussian clamping.
   - `WindMouseTests`: verify deterministic output with seeded `Random`, exact convergence on `(destX, destY)`, step speed bounds, and zero-distance handling.
   - `ClickEngineTests`: verify action sequences (`Click`, `DoubleClick`, `Hold`, `Drag`) and guaranteed button release (`isDown: false`) when `CancellationToken` triggers mid-action using a fake `IInputSimulator`.
-  - `SettingsStoreTests`: verify JSON round-tripping and graceful fallback when `settings.json` is missing or corrupted.
+  - Additional `SettingsStoreTests`: verify `Version` / edge-case JSON round-tripping and missing-file fallback.
+
+---
+
+## 8. Logging UI Enhancements
+
+- Add an **"Open Log Folder"** button/link in the UI so users can quickly locate `autoclicker-*.log` files when troubleshooting.

@@ -1,5 +1,7 @@
 using System;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Tmds.DBus;
 
 namespace Autoclicker.Platforms.Linux;
@@ -50,9 +52,15 @@ public sealed class WaylandDbusStopService : IAutoclickerDbusInterface
 
     public Connection? Connection => _connection;
     public ConnectionInfo? ConnectionInfo => _connectionInfo;
+    private readonly ILogger<WaylandDbusStopService> _logger;
     private Connection? _connection;
     private ConnectionInfo? _connectionInfo;
     private bool _isRunning;
+
+    public WaylandDbusStopService(ILogger<WaylandDbusStopService>? logger = null)
+    {
+        _logger = logger ?? NullLogger<WaylandDbusStopService>.Instance;
+    }
 
     /// <summary>
     /// Starts the D-Bus service: connects to the session bus, registers the object,
@@ -77,17 +85,17 @@ public sealed class WaylandDbusStopService : IAutoclickerDbusInterface
             if (result == 1) // DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER
             {
                 _isRunning = true;
-                Console.WriteLine($"D-Bus service active: {ServiceName}");
-                Console.WriteLine($"Stop command: {StopCommand}");
+                _logger.LogInformation("D-Bus service active: {ServiceName}", ServiceName);
+                _logger.LogInformation("D-Bus emergency stop command: {StopCommand}", StopCommand);
             }
             else
             {
-                Console.WriteLine($"Warning: Could not acquire D-Bus name (result: {result})");
+                _logger.LogWarning("Could not acquire D-Bus name {ServiceName} (RequestName result: {Result})", ServiceName, result);
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Warning: Could not start D-Bus service: {ex.Message}");
+            _logger.LogWarning(ex, "Could not start D-Bus service {ServiceName}", ServiceName);
         }
     }
 
@@ -97,7 +105,7 @@ public sealed class WaylandDbusStopService : IAutoclickerDbusInterface
     /// </summary>
     public Task StopAsync()
     {
-        Console.WriteLine("Emergency stop received via D-Bus!");
+        _logger.LogInformation("Emergency stop received via D-Bus");
         OnStopReceived?.Invoke();
         return Task.CompletedTask;
     }

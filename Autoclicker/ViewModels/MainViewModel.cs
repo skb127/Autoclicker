@@ -12,6 +12,8 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Autoclicker.ViewModels;
 
@@ -29,6 +31,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly IHotkeyListener _hotkeyListener;
     private readonly ISettingsStore _settingsStore;
     private readonly IScreenBoundsProvider _screenBoundsProvider;
+    private readonly ILogger<MainViewModel> _logger;
     private readonly ClickEngine _clickEngine;
 
     private CancellationTokenSource? _clickCts;
@@ -163,14 +166,17 @@ public partial class MainViewModel : ViewModelBase
         ICoordinatePicker coordinatePicker,
         IHotkeyListener hotkeyListener,
         ISettingsStore settingsStore,
-        IScreenBoundsProvider screenBoundsProvider)
+        IScreenBoundsProvider screenBoundsProvider,
+        ILogger<MainViewModel>? logger = null,
+        ILogger<ClickEngine>? clickEngineLogger = null)
     {
         _inputSimulator = inputSimulator;
         _coordinatePicker = coordinatePicker;
         _hotkeyListener = hotkeyListener;
         _settingsStore = settingsStore;
         _screenBoundsProvider = screenBoundsProvider;
-        _clickEngine = new ClickEngine(_inputSimulator);
+        _logger = logger ?? NullLogger<MainViewModel>.Instance;
+        _clickEngine = new ClickEngine(_inputSimulator, logger: clickEngineLogger);
 
         ClickPatterns.CollectionChanged += (_, _) => RefreshPatternButtonsState();
 
@@ -196,7 +202,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Hotkey initialization warning: {ex.Message}");
+            _logger.LogWarning(ex, "Hotkey initialization warning");
         }
 
         // RefreshWaylandState calls OnPropertyChanged, which MUST run on the UI thread.
@@ -298,6 +304,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Coordinate capture failed");
             ShowWarning("Coordinate Capture Failed", ex.Message);
         }
     }
@@ -313,6 +320,12 @@ public partial class MainViewModel : ViewModelBase
             bool isInsideAnyScreen = screens.Any(s => s.Contains(ManualX, ManualY));
             if (!isInsideAnyScreen)
             {
+                _logger.LogWarning(
+                    "Rejected manual coordinate ({X}, {Y}): outside all {ScreenCount} connected monitor(s)",
+                    ManualX,
+                    ManualY,
+                    screens.Count);
+
                 var monitorList = string.Join(
                     "\n",
                     screens.Select(s =>
@@ -326,6 +339,11 @@ public partial class MainViewModel : ViewModelBase
         }
         else if (ManualX < 0 || ManualY < 0)
         {
+            _logger.LogWarning(
+                "Rejected negative manual coordinate ({X}, {Y}) with no detected monitors",
+                ManualX,
+                ManualY);
+
             ShowWarning(
                 "Invalid Coordinate",
                 $"Monitor bounds could not be detected, and negative coordinates (X: {ManualX}, Y: {ManualY}) are not allowed.");
@@ -341,14 +359,26 @@ public partial class MainViewModel : ViewModelBase
         int addedIndex = ClickPatterns.Count - 1;
         SelectedPatternIndex = addedIndex;
         CoordinateAdded?.Invoke(this, addedIndex);
+        _logger.LogInformation(
+            "Added coordinate ({X}, {Y}) at index {Index} (Total={Count})",
+            x,
+            y,
+            addedIndex,
+            ClickPatterns.Count);
     }
 
     [RelayCommand]
     private void ClearPattern()
     {
+        int removedCount = ClickPatterns.Count;
         ClickPatterns.Clear();
         SelectedPatternIndex = -1;
         ActiveDialog = null;
+
+        if (removedCount > 0)
+        {
+            _logger.LogInformation("Cleared coordinate pattern ({RemovedCount} coordinate(s) removed)", removedCount);
+        }
     }
 
     [RelayCommand]
@@ -372,7 +402,15 @@ public partial class MainViewModel : ViewModelBase
         }
 
         int removedIndex = SelectedPatternIndex;
+        var removed = ClickPatterns[removedIndex];
         ClickPatterns.RemoveAt(removedIndex);
+
+        _logger.LogInformation(
+            "Removed coordinate ({X}, {Y}) at index {Index} (Remaining={Count})",
+            removed.X,
+            removed.Y,
+            removedIndex,
+            ClickPatterns.Count);
 
         if (ClickPatterns.Count == 0)
         {
@@ -409,6 +447,9 @@ public partial class MainViewModel : ViewModelBase
 
         if (SelectedAction == ClickActionKind.Drag && ClickPatterns.Count < 2)
         {
+            _logger.LogWarning(
+                "Cannot start autoclicker: Drag action requires at least 2 coordinates (CurrentCount={Count})",
+                ClickPatterns.Count);
             ShowWarning(
                 "Insufficient Coordinates",
                 "Drag action requires at least 2 coordinates in the pattern (start and end points).");
@@ -417,6 +458,7 @@ public partial class MainViewModel : ViewModelBase
 
         if (_hotkeyListener is { RequiresManualSetup: true, IsHotkeyConfigured: false })
         {
+            _logger.LogWarning("Cannot start autoclicker: Wayland emergency hotkey is not configured");
             ShowWarning(
                 "Emergency Key Required",
                 "Configure the emergency key before starting (see the Wayland Emergency Key section below).");
@@ -440,6 +482,10 @@ public partial class MainViewModel : ViewModelBase
             var validationIssues = _inputSimulator.ValidateTargets(ClickPatterns.Select(p => (p.X, p.Y)));
             if (validationIssues.Count > 0)
             {
+                _logger.LogWarning(
+                    "Cannot start autoclicker: {IssueCount} coordinate(s) outside shared monitor ({FirstIssue})",
+                    validationIssues.Count,
+                    validationIssues[0]);
                 string details = validationIssues.Count == 1
                     ? validationIssues[0]
                     : $"{validationIssues[0]}\n\n({validationIssues.Count - 1} more coordinate(s) outside the shared monitor.)";
@@ -487,6 +533,20 @@ public partial class MainViewModel : ViewModelBase
 
             handedOffToBackgroundLoop = true;
 
+            _logger.LogInformation(
+                "Starting autoclicker: Button={Button}, Action={Action}, Count={Count}, MinIntervalMs={MinIntervalMs}, MaxIntervalMs={MaxIntervalMs}, Randomize={RandomizeInterval}, Repetitions={Repetitions}, HoldMs={HoldMs}, JitterPx={JitterPx}, HumanMovement={HumanMovement}, Speed={MovementSpeed}",
+                settingsSnapshot.Button,
+                settingsSnapshot.Action,
+                patternSnapshot.Count,
+                settingsSnapshot.MinIntervalMs,
+                settingsSnapshot.MaxIntervalMs,
+                settingsSnapshot.RandomizeInterval,
+                settingsSnapshot.Repetitions,
+                settingsSnapshot.HoldMs,
+                settingsSnapshot.JitterPx,
+                settingsSnapshot.HumanMovement,
+                settingsSnapshot.MovementSpeed);
+
             _ = Task.Run(async () =>
             {
                 try
@@ -496,9 +556,11 @@ public partial class MainViewModel : ViewModelBase
                 catch (OperationCanceledException)
                 {
                     // Expected when the user stops the loop via button or emergency hotkey
+                    _logger.LogInformation("Autoclick loop canceled");
                 }
                 catch (Exception ex)
                 {
+                    _logger.LogError(ex, "Autoclick loop error");
                     await Dispatcher.UIThread.InvokeAsync(() =>
                         ShowError("Autoclick Loop Error", ex.Message));
                 }
@@ -512,9 +574,11 @@ public partial class MainViewModel : ViewModelBase
         catch (OperationCanceledException)
         {
             // Expected if the user stops during the brief hide-settle delay before the loop starts.
+            _logger.LogInformation("Autoclick start canceled before background loop began");
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Input initialization failed while starting autoclicker");
             ShowError("Input Initialization Failed", $"Could not start event injection. {ex.Message}");
         }
         finally
@@ -529,13 +593,16 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private void StopAutoclick()
     {
+        _logger.LogInformation("Stopping autoclicker");
+
         try
         {
             _clickCts?.Cancel();
         }
-        catch
+        catch (Exception ex)
         {
             // Ignore if already disposed
+            _logger.LogWarning(ex, "CancellationTokenSource already disposed when stopping autoclicker");
         }
 
         if (Dispatcher.UIThread.CheckAccess())
@@ -604,7 +671,7 @@ public partial class MainViewModel : ViewModelBase
 
         if (success)
         {
-            Console.WriteLine("Portal hotkey configured successfully.");
+            _logger.LogInformation("Portal hotkey configured successfully");
             ShowWaylandSetupDetails = false;
             SaveCurrentSettings();
         }
