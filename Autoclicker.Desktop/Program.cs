@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Autoclicker.Logging;
 using Avalonia;
 
@@ -35,6 +35,7 @@ sealed class Program
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
+            .With(new X11PlatformOptions { EnableIme = false })
             .WithInterFont()
             .LogToSerilog();
 }

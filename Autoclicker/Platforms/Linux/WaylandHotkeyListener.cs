@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading.Tasks;
 using Autoclicker.Services;
 using Microsoft.Extensions.Logging;
@@ -25,6 +24,8 @@ public interface IGlobalShortcutsPortal : IDBusObject
         Action<(ObjectPath sessionHandle, string shortcutId, ulong timestamp, IDictionary<string, object> options)>
             handler,
         Action<Exception>? onError = null);
+
+    Task<object> GetAsync(string prop);
 }
 
 [DBusInterface("org.freedesktop.portal.Request")]
@@ -47,20 +48,15 @@ public interface IPortalRegistry : IDBusObject
     Task RegisterAsync(string appId, IDictionary<string, object> options);
 }
 
-[DBusInterface("org.freedesktop.DBus.Properties")]
-public interface IDBusProperties : IDBusObject
-{
-    Task<object> GetAsync(string interfaceName, string propName);
-}
-
 /// <summary>
 /// Hybrid hotkey listener for Wayland environments.
 /// 
 /// Strategy:
 /// 1. Always starts a D-Bus service (com.autoclicker.app) as the guaranteed fallback.
 ///    The user can configure a system shortcut in their desktop's Keyboard Settings.
-/// 2. Automatically checks if a custom shortcut calling com.autoclicker.app is already
-///    configured in COSMIC Settings (or previously confirmed in app settings).
+/// 2. Requires live verification: pressing the configured system shortcut invokes
+///    com.autoclicker.app.Stop over D-Bus, proving end-to-end shortcut delivery on any
+///    Wayland desktop environment before allowing Start.
 /// 3. If the GlobalShortcuts portal is genuinely supported by the desktop backend,
 ///    offers a "Configure via Portal" button that opens the native shortcut dialog.
 /// 4. The Start button is blocked until the emergency key is ready through either method.
@@ -97,7 +93,16 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
 
         _dbusService.OnStopReceived += () =>
         {
-            _logger.LogInformation("Emergency stop triggered via D-Bus");
+            if (!_isHotkeyConfigured)
+            {
+                _isHotkeyConfigured = true;
+                _logger.LogInformation("Wayland emergency shortcut verified via D-Bus signal");
+            }
+            else
+            {
+                _logger.LogInformation("Emergency stop triggered via D-Bus");
+            }
+
             OnStopRequested?.Invoke();
         };
     }
@@ -105,18 +110,12 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
     // Initialization (called once on app startup)
 
     /// <summary>
-    /// Starts the D-Bus fallback service, checks for existing custom shortcuts, and probes
-    /// whether the GlobalShortcuts portal interface is genuinely implemented by the desktop backend.
+    /// Starts the D-Bus fallback service and probes whether the GlobalShortcuts portal
+    /// interface is genuinely implemented by the desktop backend.
     /// </summary>
     public async Task InitializeAsync()
     {
         await _dbusService.StartAsync();
-
-        if (TryDetectExistingSystemShortcut())
-        {
-            _isHotkeyConfigured = true;
-            _logger.LogInformation("Existing system custom shortcut detected; emergency key marked as ready");
-        }
 
         _isPortalAvailable = await ProbePortalAvailableAsync();
 
@@ -247,17 +246,6 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
         }
     }
 
-    // Manual D-Bus Confirmation
-
-    /// <summary>
-    /// Called when the user confirms they have configured the custom shortcut manually.
-    /// </summary>
-    public void ConfirmManualSetup()
-    {
-        _isHotkeyConfigured = true;
-        _logger.LogInformation("Manual D-Bus shortcut confirmed");
-    }
-
     // StartListening / StopListening
 
     public Task StartListening()
@@ -293,13 +281,11 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
                 return false;
             }
 
-            var propertiesProxy = connection.CreateProxy<IDBusProperties>(
+            var portalProxy = connection.CreateProxy<IGlobalShortcutsPortal>(
                 "org.freedesktop.portal.Desktop",
                 "/org/freedesktop/portal/desktop");
 
-            object versionObj = await propertiesProxy.GetAsync(
-                "org.freedesktop.portal.GlobalShortcuts",
-                "version");
+            object versionObj = await portalProxy.GetAsync("version");
 
             uint version = Convert.ToUInt32(versionObj);
             return version >= 1;
@@ -309,47 +295,6 @@ public sealed class WaylandHotkeyListener : IHotkeyListener
             _logger.LogInformation("GlobalShortcuts portal probe returned unavailable ({Reason})", ex.Message);
             return false;
         }
-    }
-
-    /// <summary>
-    /// Checks whether the user has already configured the D-Bus stop command in their desktop's
-    /// custom shortcuts configuration (for example, COSMIC's <c>Shortcuts/v1/custom</c> file).
-    /// </summary>
-    private bool TryDetectExistingSystemShortcut()
-    {
-        try
-        {
-            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (string.IsNullOrEmpty(home))
-            {
-                return false;
-            }
-
-            // Check COSMIC Desktop custom shortcuts file
-            string cosmicCustomShortcutsPath = Path.Combine(
-                home,
-                ".config",
-                "cosmic",
-                "com.system76.CosmicSettings.Shortcuts",
-                "v1",
-                "custom");
-
-            if (File.Exists(cosmicCustomShortcutsPath))
-            {
-                string content = File.ReadAllText(cosmicCustomShortcutsPath);
-                if (content.Contains("com.autoclicker.app", StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            // Ignore file read errors and fall back to persisted or manual confirmation
-            _logger.LogWarning(ex, "Could not inspect existing COSMIC custom shortcuts file");
-        }
-
-        return false;
     }
 
     private async Task<IDictionary<string, object>> CallPortalAsync(

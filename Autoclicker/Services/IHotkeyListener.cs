@@ -31,9 +31,4 @@ public interface IHotkeyListener
 
     /// <summary>Attempts to configure the hotkey via the portal dialog. Returns true on success.</summary>
     Task<bool> ConfigureHotkeyAsync() => Task.FromResult(true);
-
-    /// <summary>Marks the hotkey as configured manually by the user.</summary>
-    void ConfirmManualSetup()
-    {
-    }
 }

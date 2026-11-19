@@ -109,8 +109,7 @@ public sealed class SettingsStoreLoggingTests : IDisposable
             JitterPx: 4,
             HumanMovement: true,
             MovementSpeed: MovementSpeedKind.Fast,
-            Pattern: [new Coordinate(100, 200), new Coordinate(300, 400)],
-            WaylandHotkeyConfirmed: true);
+            Pattern: [new Coordinate(100, 200), new Coordinate(300, 400)]);
 
         AppSettings loaded;
         using (var serilogLogger = AppLogging.CreateLogger(
@@ -136,7 +135,6 @@ public sealed class SettingsStoreLoggingTests : IDisposable
         Assert.Equal(expected.JitterPx, loaded.JitterPx);
         Assert.Equal(expected.HumanMovement, loaded.HumanMovement);
         Assert.Equal(expected.MovementSpeed, loaded.MovementSpeed);
-        Assert.Equal(expected.WaylandHotkeyConfirmed, loaded.WaylandHotkeyConfirmed);
         Assert.NotNull(loaded.Pattern);
         Assert.Equal(expected.Pattern!, loaded.Pattern);
 
@@ -144,6 +142,52 @@ public sealed class SettingsStoreLoggingTests : IDisposable
         Assert.Contains("[INF]", logContents, StringComparison.Ordinal);
         Assert.Contains("Saved settings", logContents, StringComparison.Ordinal);
         Assert.Contains("Loaded settings", logContents, StringComparison.Ordinal);
+        Assert.DoesNotContain("[WRN]", logContents, StringComparison.Ordinal);
+        Assert.DoesNotContain("[ERR]", logContents, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Load_WhenLegacyJsonContainsWaylandHotkeyConfirmed_IgnoresObsoletePropertyCleanly()
+    {
+        string settingsPath = Path.Combine(_tempRoot, "settings.json");
+        string logDir = Path.Combine(_tempRoot, "logs");
+        File.WriteAllText(
+            settingsPath,
+            """
+            {
+              "version": 1,
+              "minIntervalMs": 300,
+              "maxIntervalMs": 500,
+              "randomizeInterval": true,
+              "repetitions": 2,
+              "button": "Left",
+              "action": "Click",
+              "holdMs": 200,
+              "jitterPx": 0,
+              "humanMovement": false,
+              "movementSpeed": "Normal",
+              "pattern": [{ "x": 10, "y": 20 }],
+              "waylandHotkeyConfirmed": true
+            }
+            """);
+
+        AppSettings loaded;
+        using (var serilogLogger = AppLogging.CreateLogger(
+                   logDir,
+                   LogEventLevel.Information,
+                   writeToConsole: false,
+                   asyncFileSink: false))
+        using (var loggerFactory = new SerilogLoggerFactory(serilogLogger, dispose: false))
+        {
+            var store = new SettingsStore(settingsPath, loggerFactory.CreateLogger<SettingsStore>());
+            loaded = store.Load();
+        }
+
+        Assert.Equal(300, loaded.MinIntervalMs);
+        Assert.Equal(500, loaded.MaxIntervalMs);
+        Assert.Single(loaded.Pattern!);
+
+        string logContents = ReadCombinedLogs(logDir);
         Assert.DoesNotContain("[WRN]", logContents, StringComparison.Ordinal);
         Assert.DoesNotContain("[ERR]", logContents, StringComparison.Ordinal);
     }

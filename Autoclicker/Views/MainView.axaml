@@ -29,7 +29,8 @@
 
                             <StackPanel Spacing="4" IsVisible="{Binding RandomizeInterval}">
                                 <TextBlock Text="Max interval (ms):" />
-                                <controls:IntegerUpDown IntValue="{Binding MaxIntervalMs}" Minimum="{Binding MinIntervalMs}" Maximum="60000"
+                                <controls:IntegerUpDown IntValue="{Binding MaxIntervalMs}"
+                                                        Minimum="{Binding MinIntervalMs}" Maximum="60000"
                                                         Increment="50" IsEnabled="{Binding !IsClicking}" />
                             </StackPanel>
 
@@ -191,7 +192,8 @@
                                        VerticalAlignment="Center" />
                             <TextBlock Text="✔ Active" Foreground="Green" FontWeight="Bold"
                                        IsVisible="{Binding IsHotkeyReady}" VerticalAlignment="Center" />
-                            <TextBlock Text="✖ Not configured" Foreground="Red" FontWeight="Bold"
+                            <TextBlock Text="⏳ Press your shortcut key to verify" Foreground="OrangeRed"
+                                       FontWeight="Bold"
                                        IsVisible="{Binding !IsHotkeyReady}" VerticalAlignment="Center" />
                             <Button Content="⚙️ Show / Hide Setup"
                                     Command="{Binding ToggleWaylandSetupDetailsCommand}"
@@ -219,7 +221,7 @@
                                        FontWeight="SemiBold" Foreground="Gray" Margin="0,4,0,0" />
 
                             <TextBlock TextWrapping="Wrap" FontSize="12"
-                                       Text="1. Open System Settings (COSMIC / GNOME / KDE) → Keyboard → Custom Shortcuts" />
+                                       Text="1. Open System Settings (GNOME / KDE / COSMIC) → Keyboard → Custom Shortcuts" />
                             <TextBlock TextWrapping="Wrap" FontSize="12"
                                        Text="2. Add a new shortcut with this command:" />
 
@@ -230,10 +232,8 @@
                             <TextBlock TextWrapping="Wrap" FontSize="12"
                                        Text="3. Assign your preferred key combo (e.g., Ctrl+Escape)" />
 
-                            <Button Content="✔ I have configured the shortcut"
-                                    Command="{Binding ConfirmManualSetupCommand}"
-                                    IsVisible="{Binding !IsHotkeyReady}"
-                                    HorizontalAlignment="Left" Margin="0,4,0,0" />
+                            <TextBlock TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold"
+                                       Text="4. Press your assigned key combo now — Autoclicker will detect the D-Bus signal and activate automatically." />
                         </StackPanel>
                     </StackPanel>
                 </Border>
@@ -260,3 +260,4 @@
                                     ZIndex="100" />
     </Grid>
 </UserControl>
+

@@ -15,10 +15,17 @@ internal sealed class AvaloniaSerilogSink : ILogSink
 {
     private readonly AvaloniaLogEventLevel _minimumLevel;
     private readonly HashSet<string>? _areas;
+    private readonly ILogger? _logger;
 
     public AvaloniaSerilogSink(AvaloniaLogEventLevel minimumLevel, params string[] areas)
+        : this(minimumLevel, logger: null, areas)
+    {
+    }
+
+    internal AvaloniaSerilogSink(AvaloniaLogEventLevel minimumLevel, ILogger? logger, params string[] areas)
     {
         _minimumLevel = minimumLevel;
+        _logger = logger;
         _areas = areas is { Length: > 0 }
             ? new HashSet<string>(areas, StringComparer.OrdinalIgnoreCase)
             : null;
@@ -36,7 +43,7 @@ internal sealed class AvaloniaSerilogSink : ILogSink
             return false;
         }
 
-        return Serilog.Log.IsEnabled(ToSerilogLevel(level));
+        return (_logger ?? Serilog.Log.Logger).IsEnabled(ToSerilogLevel(level));
     }
 
     public void Log(AvaloniaLogEventLevel level, string area, object? source, string messageTemplate)
@@ -64,7 +71,7 @@ internal sealed class AvaloniaSerilogSink : ILogSink
         Write(level, area, source, messageTemplate, propertyValues);
     }
 
-    private static void Write(
+    private void Write(
         AvaloniaLogEventLevel level,
         string area,
         object? source,
@@ -75,13 +82,41 @@ internal sealed class AvaloniaSerilogSink : ILogSink
             ? "Avalonia"
             : $"Avalonia.{area}";
 
-        ILogger logger = Serilog.Log.ForContext("SourceContext", sourceContext);
+        ILogger logger = (_logger ?? Serilog.Log.Logger).ForContext("SourceContext", sourceContext);
         if (source is not null)
         {
             logger = logger.ForContext("AvaloniaSource", source.GetType().Name);
         }
 
-        logger.Write(ToSerilogLevel(level), messageTemplate, propertyValues);
+        string sanitizedTemplate = StripNullChars(messageTemplate);
+        object?[] sanitizedValues = SanitizePropertyValues(propertyValues);
+
+        logger.Write(ToSerilogLevel(level), sanitizedTemplate, sanitizedValues);
+    }
+
+    private static string StripNullChars(string value) =>
+        string.IsNullOrEmpty(value) || !value.Contains('\0')
+            ? value
+            : value.Replace("\0", string.Empty, StringComparison.Ordinal);
+
+    private static object?[] SanitizePropertyValues(object?[]? propertyValues)
+    {
+        if (propertyValues is null)
+        {
+            return [];
+        }
+
+        object?[]? copy = null;
+        for (int i = 0; i < propertyValues.Length; i++)
+        {
+            if (propertyValues[i] is string str && str.Contains('\0'))
+            {
+                copy ??= (object?[])propertyValues.Clone();
+                copy[i] = StripNullChars(str);
+            }
+        }
+
+        return copy ?? propertyValues;
     }
 
     private static SerilogLogEventLevel ToSerilogLevel(AvaloniaLogEventLevel level) => level switch

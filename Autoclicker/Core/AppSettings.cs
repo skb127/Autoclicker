@@ -20,8 +20,7 @@ public sealed record AppSettings(
     int JitterPx = 0,
     bool HumanMovement = false,
     MovementSpeedKind MovementSpeed = MovementSpeedKind.Normal,
-    List<Coordinate>? Pattern = null,
-    bool WaylandHotkeyConfirmed = false);
+    List<Coordinate>? Pattern = null);
 
 [JsonSourceGenerationOptions(
     WriteIndented = true,

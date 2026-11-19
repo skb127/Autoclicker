@@ -57,7 +57,7 @@ This document tracks ideas and enhancements planned for future phases of **Autoc
 
 ## 7. Automated Unit Test Suite (`Autoclicker.Tests`)
 
-- `Autoclicker.Tests` is initialized with logging and `SettingsStore` error-logging tests (`SettingsStoreLoggingTests`, `LogPathsAndLevelTests`).
+- `Autoclicker.Tests` is initialized with logging, settings, and Wayland hotkey verification tests (`SettingsStoreLoggingTests`, `LogPathsAndLevelTests`, `WaylandHotkeyVerificationTests`).
 - Expand the suite to cover the remaining pure platform-agnostic classes in `Autoclicker/Core/`:
   - `AxisTransformTests`: verify `FromScreenAndStreamSize`, `FromSamples`, `ToStream`, `ToGlobal`, and invalid/anisotropic scale rejection.
   - `IntervalProviderTests`: verify bounds `[Min, Max]`, `Min == Max` constant behavior, and Gaussian clamping.

@@ -33,15 +33,17 @@ Because `GlobalShortcuts` lacks stability across varying compositor setups, the 
 
 *MainViewModel automatically handles falling back to this manual flow if the Portal throws Code 2.*
 
-### 4. Probing `GlobalShortcuts` Availability & `host.portal.Registry` Compatibility (COSMIC / Ubuntu 24.04)
-Two additional D-Bus subtleties surfaced when testing on **COSMIC Desktop (`xdg-desktop-portal-cosmic` 1.11 + `xdg-desktop-portal` 1.18.4)**:
+### 4. Probing `GlobalShortcuts` Availability, `host.portal.Registry` Compatibility & Live D-Bus Verification (COSMIC / Ubuntu 24.04)
+Three additional D-Bus subtleties surfaced when testing on **COSMIC Desktop (`xdg-desktop-portal-cosmic` 1.11 + `xdg-desktop-portal` 1.18.4)**:
 
-1. **Why Signal Subscriptions (`WatchActivatedAsync`) Cannot Probe Interface Existence:**
+1. **Why Signal Subscriptions (`WatchActivatedAsync`) Cannot Probe Interface Existence (and `Tmds.DBus` Property Convention):**
    - Initially, `ProbePortalAvailableAsync` tested whether `org.freedesktop.portal.GlobalShortcuts` existed by subscribing to its `Activated` signal via `WatchActivatedAsync`.
    - Under D-Bus, subscribing to a signal only registers a local `AddMatch` filter rule on `dbus-daemon` — it **never contacts `/org/freedesktop/portal/desktop`**. Consequently, `WatchActivatedAsync` succeeded even on desktop backends (like COSMIC) that do not implement `GlobalShortcuts`, falsely enabling the *"Configure via Portal"* button.
-   - **Fix:** Query the `version` property via `org.freedesktop.DBus.Properties.Get("org.freedesktop.portal.GlobalShortcuts", "version")` on `/org/freedesktop/portal/desktop`. This performs a real round-trip to `xdg-desktop-portal` and throws `DBusException` whenever the active portal backend does not implement `GlobalShortcuts`.
+   - Additionally, `Tmds.DBus` reserves `GetAsync` by convention on `[DBusInterface]` interfaces and rejects a manually declared `org.freedesktop.DBus.Properties.GetAsync(string interfaceName, string propName)` with an `ArgumentException` before sending anything over D-Bus.
+   - **Fix:** Declare `Task<object> GetAsync(string prop);` directly on `IGlobalShortcutsPortal` and call `portalProxy.GetAsync("version")` on `/org/freedesktop/portal/desktop`. `Tmds.DBus` translates this into `org.freedesktop.DBus.Properties.Get("org.freedesktop.portal.GlobalShortcuts", "version")`, performing a real round-trip to `xdg-desktop-portal` and throwing `DBusException` (`InvalidArgs` / `UnknownInterface`) whenever the active portal backend does not implement `GlobalShortcuts`.
 2. **`org.freedesktop.host.portal.Registry` Requires `xdg-desktop-portal >= 1.20`:**
    - The `org.freedesktop.host.portal.Registry` interface was introduced in `xdg-desktop-portal 1.20`. On distributions shipping `xdg-desktop-portal 1.18.x` (such as Ubuntu 24.04 LTS and Pop!_OS 24.04), calling `Registry.RegisterAsync` unconditionally throws `org.freedesktop.DBus.Error.UnknownMethod`.
    - **Fix:** Wrap `Registry.RegisterAsync` in a non-fatal `try / catch` block so host registration is best-effort and never blocks `GlobalShortcuts` on `xdg-desktop-portal < 1.20`.
-3. **Auto-Detection & Persistence of Custom Shortcuts:**
-   - On startup, `WaylandHotkeyListener` inspects `~/.config/cosmic/com.system76.CosmicSettings.Shortcuts/v1/custom` (on COSMIC) and `AppSettings.WaylandHotkeyConfirmed` (`settings.json`) so users who have already configured the `busctl` stop shortcut do not need to re-confirm it on every application launch.
+3. **Desktop-Agnostic Live D-Bus Signal Verification:**
+   - Custom shortcut storage varies by desktop environment (COSMIC RON files, GNOME `dconf`, KDE `kglobalshortcutsrc`, Sway/Hyprland config files) and persisting a blind confirmation flag in `settings.json` leaves the UI falsely showing *"Active"* if the user deletes or breaks their system shortcut.
+   - **Solution:** Because `WaylandDbusStopService` (`com.autoclicker.app`) starts immediately when Autoclicker launches, `WaylandHotkeyListener` requires live verification on every Wayland session: pressing the user's configured system shortcut once while idle delivers a real `Stop` call over D-Bus, which marks `IsHotkeyConfigured = true` and unlocks **Start Autoclick** without any desktop-specific config parsing or blind confirmation buttons.

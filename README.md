@@ -35,7 +35,7 @@ AUTOCLICKER_LOG_LEVEL=Debug dotnet run --project Autoclicker.Desktop/Autoclicker
 ## Wayland Notes
 
 - **Screen Sharing Permission:** On first start, select the monitor where your pattern coordinates are located and enable pointer control.
-- **Emergency Stop Key:** Configure an emergency stop shortcut via the portal button (if supported by your desktop) or by binding the `busctl` command shown in the app inside your system keyboard settings.
+- **Emergency Stop Key:** On Windows and Linux (X11), `Escape` works automatically with no setup. On Wayland, configure an emergency stop shortcut via the portal button (if supported by your desktop) or bind the `busctl` command shown in the app inside your system keyboard settings, then press your assigned key combo once while Autoclicker is open so it verifies the D-Bus signal and unlocks **Start Autoclick**.
 
 ## Docs
 

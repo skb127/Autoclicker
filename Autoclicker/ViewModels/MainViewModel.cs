@@ -183,8 +183,8 @@ public partial class MainViewModel : ViewModelBase
         // Load persisted user settings and pattern from disk
         LoadSavedSettings();
 
-        // Connect our native emergency key to the method that stops the loop
-        _hotkeyListener.OnStopRequested += StopAutoclick;
+        // Connect our native emergency key to handle both startup verification and stopping the loop
+        _hotkeyListener.OnStopRequested += OnHotkeyStopRequested;
 
         // Initialize Wayland services asynchronously (fire-and-forget on startup)
         _ = InitializeHotkeyAsync();
@@ -244,11 +244,6 @@ public partial class MainViewModel : ViewModelBase
                     ClickPatterns.Add(coord);
                 }
             }
-
-            if (saved.WaylandHotkeyConfirmed && _hotkeyListener.RequiresManualSetup)
-            {
-                _hotkeyListener.ConfirmManualSetup();
-            }
         }
         finally
         {
@@ -282,8 +277,7 @@ public partial class MainViewModel : ViewModelBase
             JitterPx: JitterPx,
             HumanMovement: HumanMovement,
             MovementSpeed: MovementSpeed,
-            Pattern: [.. ClickPatterns],
-            WaylandHotkeyConfirmed: _hotkeyListener is { RequiresManualSetup: true, IsHotkeyConfigured: true });
+            Pattern: [.. ClickPatterns]);
 
         _settingsStore.Save(settings);
     }
@@ -685,17 +679,26 @@ public partial class MainViewModel : ViewModelBase
         RefreshWaylandState();
     }
 
-    /// <summary>
-    /// Called when the user confirms they have manually configured a custom shortcut.
-    /// Unlocks the Start button and persists confirmation.
-    /// </summary>
-    [RelayCommand]
-    private void ConfirmManualSetup()
+    private void OnHotkeyStopRequested()
     {
-        _hotkeyListener.ConfirmManualSetup();
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            HandleHotkeyStopOnUiThread();
+        }
+        else
+        {
+            Dispatcher.UIThread.Post(HandleHotkeyStopOnUiThread);
+        }
+    }
+
+    private void HandleHotkeyStopOnUiThread()
+    {
+        if (IsClicking)
+        {
+            StopAutoclick();
+        }
+
         ShowWaylandSetupDetails = false;
-        ActiveDialog = null;
-        SaveCurrentSettings();
         RefreshWaylandState();
     }
 
