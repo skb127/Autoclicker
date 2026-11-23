@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Autoclicker.Core;
 using Autoclicker.Services;
+using Autoclicker.Views.Controls;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -39,7 +40,17 @@ public partial class MainViewModel : ViewModelBase
 
     public event EventHandler<int>? CoordinateAdded;
 
+    internal Func<TimeSpan, CancellationToken, Task>? CountdownDelayOverride { get; set; }
+
+    internal int FinishClickingCallCount { get; private set; }
+
+    public SettingsViewModel Settings { get; }
+
     [ObservableProperty] private bool _isClicking;
+
+    [ObservableProperty] private bool _isCountingDown;
+
+    [ObservableProperty] private int _countdownSeconds;
 
     // ─── Interval & Randomization ──────────────────────────────────────
 
@@ -78,8 +89,6 @@ public partial class MainViewModel : ViewModelBase
     // ─── Status & Modals ───────────────────────────────────────────────
 
     [ObservableProperty] private DialogMessage? _activeDialog;
-
-    [ObservableProperty] private bool _showWaylandSetupDetails;
 
     [ObservableProperty] private bool _canStartAutoclick;
 
@@ -124,10 +133,11 @@ public partial class MainViewModel : ViewModelBase
     public bool CanSelectMouseButton => !IsClicking && SelectedAction != ClickActionKind.Drag;
 
     /// <summary>
-    /// True when human-like movement is active and the configured minimum interval is below 300 ms,
+    /// True when human-like movement is active and the configured minimum interval is below the warning threshold,
     /// warning the user that the trajectory travel time may exceed the nominal interval.
     /// </summary>
-    public bool IsShortIntervalWarningVisible => HumanMovement && MinIntervalMs < 300;
+    public bool IsShortIntervalWarningVisible =>
+        HumanMovement && MinIntervalMs < SettingLimits.ShortIntervalWarningThresholdMs;
 
     /// <summary>True when an item is selected and can be moved up in the pattern list.</summary>
     public bool CanMovePatternUp =>
@@ -149,17 +159,25 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>True if the emergency hotkey is configured and ready.</summary>
     public bool IsHotkeyReady => _hotkeyListener.IsHotkeyConfigured;
 
-    /// <summary>True if the GlobalShortcuts portal is available for automatic configuration.</summary>
-    public bool IsPortalAvailable => _hotkeyListener.IsPortalAvailable;
-
-    /// <summary>The busctl command the user needs for manual GNOME/COSMIC/KDE shortcut setup.</summary>
-    public string SetupInstructions => _hotkeyListener.SetupInstructions;
+    /// <summary>
+    /// True on Wayland when the emergency stop shortcut has not yet been verified in the current session.
+    /// Drives the prominent orange main-screen banner and the gear button badge.
+    /// </summary>
+    public bool IsEmergencyKeyPending => RequiresManualSetup && !IsHotkeyReady;
 
     /// <summary>
-    /// True when the Wayland setup instructions section should be expanded:
-    /// either because the hotkey is not yet configured, or because the user clicked to view instructions.
+    /// True on Wayland once the emergency stop shortcut has been verified for the current session.
+    /// Drives the compact green status bar above the Start button.
     /// </summary>
-    public bool IsWaylandSetupSectionVisible => !IsHotkeyReady || ShowWaylandSetupDetails;
+    public bool IsWaylandEmergencyKeyReady => RequiresManualSetup && IsHotkeyReady;
+
+    /// <summary>
+    /// Tooltip shown on the disabled Start button when the Wayland emergency shortcut is still unverified.
+    /// </summary>
+    public string? StartDisabledReason =>
+        IsEmergencyKeyPending
+            ? "Verify your emergency stop shortcut first (Wayland): press it once"
+            : null;
 
     public MainViewModel(
         IInputSimulator inputSimulator,
@@ -168,7 +186,8 @@ public partial class MainViewModel : ViewModelBase
         ISettingsStore settingsStore,
         IScreenBoundsProvider screenBoundsProvider,
         ILogger<MainViewModel>? logger = null,
-        ILogger<ClickEngine>? clickEngineLogger = null)
+        ILogger<ClickEngine>? clickEngineLogger = null,
+        SettingsViewModel? settings = null)
     {
         _inputSimulator = inputSimulator;
         _coordinatePicker = coordinatePicker;
@@ -177,6 +196,15 @@ public partial class MainViewModel : ViewModelBase
         _screenBoundsProvider = screenBoundsProvider;
         _logger = logger ?? NullLogger<MainViewModel>.Instance;
         _clickEngine = new ClickEngine(_inputSimulator, logger: clickEngineLogger);
+
+        Settings = settings ?? new SettingsViewModel(
+            hotkeyListener,
+            NullDesktopIntegration.Instance,
+            logDirectory: null);
+
+        Settings.DialogRequested += (_, dialog) => ActiveDialog = dialog;
+        Settings.PreferencesChanged += (_, _) => SaveCurrentSettings();
+        Settings.RestoreDefaultsRequested += (_, _) => RestoreDefaultSettings();
 
         ClickPatterns.CollectionChanged += (_, _) => RefreshPatternButtonsState();
 
@@ -220,21 +248,7 @@ public partial class MainViewModel : ViewModelBase
         {
             var saved = _settingsStore.Load();
 
-            MinIntervalMs = Math.Clamp(saved.MinIntervalMs, 1, 60000);
-            MaxIntervalMs = Math.Clamp(saved.MaxIntervalMs, MinIntervalMs, 60000);
-            RandomizeInterval = saved.RandomizeInterval;
-            if (!RandomizeInterval)
-            {
-                MaxIntervalMs = MinIntervalMs;
-            }
-
-            Repetitions = Math.Clamp(saved.Repetitions, 0, 9999);
-            SelectedAction = saved.Action;
-            SelectedButton = saved.Action == ClickActionKind.Drag ? MouseButtonKind.Left : saved.Button;
-            HoldMs = Math.Clamp(saved.HoldMs, 1, 60000);
-            JitterPx = Math.Clamp(saved.JitterPx, 0, 50);
-            HumanMovement = saved.HumanMovement;
-            MovementSpeed = saved.MovementSpeed;
+            ApplyClickAndMovementValues(saved);
 
             ClickPatterns.Clear();
             if (saved.Pattern is { Count: > 0 })
@@ -244,22 +258,74 @@ public partial class MainViewModel : ViewModelBase
                     ClickPatterns.Add(coord);
                 }
             }
+
+            Settings.LoadPreferences(saved);
         }
         finally
         {
             _isLoadingSettings = false;
             RefreshPatternButtonsState();
             RefreshWaylandState();
-            OnPropertyChanged(nameof(IsHoldSelected));
-            OnPropertyChanged(nameof(IsDragSelected));
-            OnPropertyChanged(nameof(CanSelectMouseButton));
-            OnPropertyChanged(nameof(IsShortIntervalWarningVisible));
+            NotifyComputedActionProperties();
         }
     }
 
     /// <summary>
+    /// Resets click interval, repetitions, button/action, hold duration, jitter, and human movement
+    /// back to factory defaults while preserving the user's coordinate pattern and General preferences.
+    /// </summary>
+    public void RestoreDefaultSettings()
+    {
+        if (IsClicking) return;
+
+        var defaults = new AppSettings();
+        _isLoadingSettings = true;
+        try
+        {
+            ApplyClickAndMovementValues(defaults);
+        }
+        finally
+        {
+            _isLoadingSettings = false;
+            NotifyComputedActionProperties();
+        }
+
+        SaveCurrentSettings();
+        _logger.LogInformation(
+            "Restored default click and movement settings (preserved {PatternCount} coordinate(s))",
+            ClickPatterns.Count);
+    }
+
+    private void ApplyClickAndMovementValues(AppSettings source)
+    {
+        MinIntervalMs = SettingLimits.ClampIntervalMs(source.MinIntervalMs);
+        MaxIntervalMs = SettingLimits.ClampMaxIntervalMs(source.MaxIntervalMs, MinIntervalMs);
+        RandomizeInterval = source.RandomizeInterval;
+        if (!RandomizeInterval)
+        {
+            MaxIntervalMs = MinIntervalMs;
+        }
+
+        Repetitions = SettingLimits.ClampRepetitions(source.Repetitions);
+        SelectedAction = source.Action;
+        SelectedButton = source.Action == ClickActionKind.Drag ? MouseButtonKind.Left : source.Button;
+        HoldMs = SettingLimits.ClampHoldMs(source.HoldMs);
+        JitterPx = SettingLimits.ClampJitterPx(source.JitterPx);
+        HumanMovement = source.HumanMovement;
+        MovementSpeed = source.MovementSpeed;
+    }
+
+    private void NotifyComputedActionProperties()
+    {
+        OnPropertyChanged(nameof(IsHoldSelected));
+        OnPropertyChanged(nameof(IsDragSelected));
+        OnPropertyChanged(nameof(CanSelectMouseButton));
+        OnPropertyChanged(nameof(IsShortIntervalWarningVisible));
+    }
+
+    /// <summary>
     /// Saves the current UI settings and coordinate pattern to disk.
-    /// Called automatically when starting the autoclicker and when closing the main window.
+    /// Called automatically when starting the autoclicker, changing preferences, and closing the main window.
     /// </summary>
     public void SaveCurrentSettings()
     {
@@ -277,7 +343,10 @@ public partial class MainViewModel : ViewModelBase
             JitterPx: JitterPx,
             HumanMovement: HumanMovement,
             MovementSpeed: MovementSpeed,
-            Pattern: [.. ClickPatterns]);
+            Pattern: [.. ClickPatterns],
+            Theme: Settings.Theme,
+            StartDelaySeconds: Settings.StartDelaySeconds,
+            AlwaysOnTop: Settings.AlwaysOnTop);
 
         _settingsStore.Save(settings);
     }
@@ -308,39 +377,13 @@ public partial class MainViewModel : ViewModelBase
     {
         if (IsClicking) return;
 
-        var screens = _screenBoundsProvider.GetScreens();
-        if (screens.Count > 0)
+        var validation = AutoclickerValidator.ValidateManualCoordinate(
+            ManualX,
+            ManualY,
+            _screenBoundsProvider.GetScreens());
+        if (!validation.IsValid)
         {
-            bool isInsideAnyScreen = screens.Any(s => s.Contains(ManualX, ManualY));
-            if (!isInsideAnyScreen)
-            {
-                _logger.LogWarning(
-                    "Rejected manual coordinate ({X}, {Y}): outside all {ScreenCount} connected monitor(s)",
-                    ManualX,
-                    ManualY,
-                    screens.Count);
-
-                var monitorList = string.Join(
-                    "\n",
-                    screens.Select(s =>
-                        $"• {s.Name}: X [{s.X}..{s.Right - 1}], Y [{s.Y}..{s.Bottom - 1}] ({s.Width}×{s.Height})"));
-
-                ShowWarning(
-                    "Coordinate Out of Bounds",
-                    $"The coordinate (X: {ManualX}, Y: {ManualY}) is outside all connected monitors.\n\nAvailable monitors:\n{monitorList}");
-                return;
-            }
-        }
-        else if (ManualX < 0 || ManualY < 0)
-        {
-            _logger.LogWarning(
-                "Rejected negative manual coordinate ({X}, {Y}) with no detected monitors",
-                ManualX,
-                ManualY);
-
-            ShowWarning(
-                "Invalid Coordinate",
-                $"Monitor bounds could not be detected, and negative coordinates (X: {ManualX}, Y: {ManualY}) are not allowed.");
+            HandleValidationFailure(validation);
             return;
         }
 
@@ -437,35 +480,29 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private async Task StartAutoclick()
     {
-        if (IsClicking || ClickPatterns.Count == 0) return;
+        if (IsClicking) return;
 
-        if (SelectedAction == ClickActionKind.Drag && ClickPatterns.Count < 2)
+        var preStartValidation = AutoclickerValidator.ValidatePreStart(
+            ClickPatterns,
+            SelectedAction,
+            _hotkeyListener.RequiresManualSetup,
+            _hotkeyListener.IsHotkeyConfigured);
+        if (!preStartValidation.IsValid)
         {
-            _logger.LogWarning(
-                "Cannot start autoclicker: Drag action requires at least 2 coordinates (CurrentCount={Count})",
-                ClickPatterns.Count);
-            ShowWarning(
-                "Insufficient Coordinates",
-                "Drag action requires at least 2 coordinates in the pattern (start and end points).");
-            return;
-        }
-
-        if (_hotkeyListener is { RequiresManualSetup: true, IsHotkeyConfigured: false })
-        {
-            _logger.LogWarning("Cannot start autoclicker: Wayland emergency hotkey is not configured");
-            ShowWarning(
-                "Emergency Key Required",
-                "Configure the emergency key before starting (see the Wayland Emergency Key section below).");
+            HandleValidationFailure(preStartValidation);
             return;
         }
 
         ActiveDialog = null;
+        Settings.CloseCommand.Execute(null);
         SaveCurrentSettings();
 
         Window? mainWindow = null;
+        FullScreenCountdownOverlay? countdownOverlay = null;
         bool wasWindowVisible = false;
         WindowState savedWindowState = WindowState.Normal;
         PixelPoint? savedPosition = null;
+        bool enteredClickingPhase = false;
         bool handedOffToBackgroundLoop = false;
 
         try
@@ -473,17 +510,11 @@ public partial class MainViewModel : ViewModelBase
             await _inputSimulator.InitializeAsync();
 
             // Verify that all pattern points fall inside the shared monitor (relevant on multi-monitor Wayland)
-            var validationIssues = _inputSimulator.ValidateTargets(ClickPatterns.Select(p => (p.X, p.Y)));
-            if (validationIssues.Count > 0)
+            var targetValidation = AutoclickerValidator.ValidateSharedMonitorTargets(
+                _inputSimulator.ValidateTargets(ClickPatterns.Select(p => (p.X, p.Y))));
+            if (!targetValidation.IsValid)
             {
-                _logger.LogWarning(
-                    "Cannot start autoclicker: {IssueCount} coordinate(s) outside shared monitor ({FirstIssue})",
-                    validationIssues.Count,
-                    validationIssues[0]);
-                string details = validationIssues.Count == 1
-                    ? validationIssues[0]
-                    : $"{validationIssues[0]}\n\n({validationIssues.Count - 1} more coordinate(s) outside the shared monitor.)";
-                ShowWarning("Coordinate Outside Shared Monitor", details);
+                HandleValidationFailure(targetValidation);
                 return;
             }
 
@@ -509,8 +540,18 @@ public partial class MainViewModel : ViewModelBase
             _clickCts = cts;
 
             IsClicking = true;
+            enteredClickingPhase = true;
 
             mainWindow = GetMainWindow();
+            countdownOverlay = Settings.StartDelaySeconds > 0 && mainWindow is not null
+                ? FullScreenCountdownOverlay.Create(
+                    mainWindow,
+                    patternSnapshot,
+                    singleMonitorTargetOnly: _hotkeyListener.RequiresManualSetup,
+                    onCancelRequested: StopAutoclick,
+                    logger: _logger)
+                : null;
+
             if (mainWindow is { IsVisible: true })
             {
                 wasWindowVisible = true;
@@ -520,8 +561,20 @@ public partial class MainViewModel : ViewModelBase
                     savedPosition = mainWindow.Position;
                 }
 
-                // Hide the app window so targets underneath can be clicked reliably.
+                // Hide the app window so the target desktop is visible underneath the full-screen countdown
+                // and targets underneath can be clicked reliably.
                 mainWindow.Hide();
+                await Task.Delay(WindowHideSettleDelayMs, cts.Token);
+            }
+
+            if (Settings.StartDelaySeconds > 0)
+            {
+                _logger.LogInformation("Countdown of {Delay}s before starting", Settings.StartDelaySeconds);
+                await RunCountdownAsync(
+                    Settings.StartDelaySeconds,
+                    cts.Token,
+                    delayAsync: CountdownDelayOverride,
+                    overlay: countdownOverlay);
                 await Task.Delay(WindowHideSettleDelayMs, cts.Token);
             }
 
@@ -567,7 +620,7 @@ public partial class MainViewModel : ViewModelBase
         }
         catch (OperationCanceledException)
         {
-            // Expected if the user stops during the brief hide-settle delay before the loop starts.
+            // Expected if the user cancels during the countdown or the brief hide-settle delay.
             _logger.LogInformation("Autoclick start canceled before background loop began");
         }
         catch (Exception ex)
@@ -577,10 +630,63 @@ public partial class MainViewModel : ViewModelBase
         }
         finally
         {
-            if (!handedOffToBackgroundLoop && IsClicking)
+            if (!handedOffToBackgroundLoop)
             {
-                FinishClicking(mainWindow, wasWindowVisible, savedWindowState, savedPosition);
+                if (enteredClickingPhase || wasWindowVisible)
+                {
+                    // Restore and activate MainWindow before closing the topmost countdown overlay
+                    // so the OS/compositor preserves foreground activation and taskbar visibility.
+                    FinishClicking(mainWindow, wasWindowVisible, savedWindowState, savedPosition);
+                }
+
+                countdownOverlay?.Close();
+
+                if (mainWindow is not null && wasWindowVisible)
+                {
+                    mainWindow.Activate();
+                }
             }
+            else
+            {
+                countdownOverlay?.Close();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Runs the full-screen countdown sequence (<c>N .. 1</c>) after the main window hides.
+    /// </summary>
+    internal async Task RunCountdownAsync(
+        int seconds,
+        CancellationToken token,
+        Func<TimeSpan, CancellationToken, Task>? delayAsync = null,
+        FullScreenCountdownOverlay? overlay = null)
+    {
+        if (seconds <= 0)
+        {
+            return;
+        }
+
+        var waitAsync = delayAsync ?? Task.Delay;
+        IsCountingDown = true;
+        try
+        {
+            overlay?.Show(seconds);
+
+            for (int remaining = seconds; remaining > 0; remaining--)
+            {
+                token.ThrowIfCancellationRequested();
+                CountdownSeconds = remaining;
+                overlay?.UpdateSeconds(remaining);
+                await waitAsync(TimeSpan.FromSeconds(1), token);
+            }
+
+            overlay?.Close();
+        }
+        finally
+        {
+            IsCountingDown = false;
+            CountdownSeconds = 0;
         }
     }
 
@@ -601,6 +707,8 @@ public partial class MainViewModel : ViewModelBase
 
         if (Dispatcher.UIThread.CheckAccess())
         {
+            IsCountingDown = false;
+            CountdownSeconds = 0;
             IsClicking = false;
             _hotkeyListener.StopListening();
         }
@@ -608,6 +716,8 @@ public partial class MainViewModel : ViewModelBase
         {
             Dispatcher.UIThread.Post(() =>
             {
+                IsCountingDown = false;
+                CountdownSeconds = 0;
                 IsClicking = false;
                 _hotkeyListener.StopListening();
             });
@@ -620,6 +730,9 @@ public partial class MainViewModel : ViewModelBase
         WindowState savedWindowState,
         PixelPoint? savedPosition)
     {
+        FinishClickingCallCount++;
+        IsCountingDown = false;
+        CountdownSeconds = 0;
         IsClicking = false;
         _hotkeyListener.StopListening();
 
@@ -650,33 +763,31 @@ public partial class MainViewModel : ViewModelBase
             : null;
     }
 
-    // ─── Wayland-specific & Modal Dialog Commands ──────────────────────
+    // ─── Settings & Modal Dialog Commands ──────────────────────────────
 
-    /// <summary>
-    /// Attempts to configure the emergency hotkey via the GNOME GlobalShortcuts portal.
-    /// Opens the system dialog where the user can assign a key binding.
-    /// </summary>
     [RelayCommand]
-    private async Task ConfigureWaylandHotkey()
+    private void OpenSettings()
     {
+        if (IsClicking) return;
+
         ActiveDialog = null;
-
-        var success = await _hotkeyListener.ConfigureHotkeyAsync();
-
-        if (success)
+        if (IsEmergencyKeyPending)
         {
-            _logger.LogInformation("Portal hotkey configured successfully");
-            ShowWaylandSetupDetails = false;
-            SaveCurrentSettings();
+            Settings.Open(SettingsTab.EmergencyKey, showVerificationRequired: true);
         }
         else
         {
-            ShowWarning(
-                "Portal Configuration Failed",
-                "Automatic portal configuration failed. Please use the manual setup below.");
+            Settings.Open();
         }
+    }
 
-        RefreshWaylandState();
+    [RelayCommand]
+    private void OpenEmergencyKeySettings()
+    {
+        if (IsClicking) return;
+
+        ActiveDialog = null;
+        Settings.Open(SettingsTab.EmergencyKey, showVerificationRequired: IsEmergencyKeyPending);
     }
 
     private void OnHotkeyStopRequested()
@@ -698,31 +809,28 @@ public partial class MainViewModel : ViewModelBase
             StopAutoclick();
         }
 
-        ShowWaylandSetupDetails = false;
         RefreshWaylandState();
-    }
-
-    [RelayCommand]
-    private void ToggleWaylandSetupDetails()
-    {
-        ShowWaylandSetupDetails = !ShowWaylandSetupDetails;
-    }
-
-    [RelayCommand]
-    private void OpenPortalInfoModal()
-    {
-        ShowInfo(
-            "About Automatic Configuration",
-            "When you click 'Configure via Portal', Linux will ask you to set an emergency shortcut.\n\n" +
-            "However, on some systems, Linux may silently reject your key combination without warning.\n\n" +
-            "When this happens, the automatic method will no longer work for safety reasons. To fix this, simply use the 100% reliable Manual Setup described below.",
-            confirmText: "Got it!");
     }
 
     [RelayCommand]
     private void CloseDialog()
     {
         ActiveDialog = null;
+    }
+
+    private void HandleValidationFailure(ValidationResult result)
+    {
+        if (result.IsValid) return;
+
+        _logger.LogWarning("{ValidationMessage}", result.LogMessage);
+
+        if (result.Code == ValidationErrorCode.WaylandHotkeyNotVerified)
+        {
+            Settings.Open(SettingsTab.EmergencyKey, showVerificationRequired: true);
+            return;
+        }
+
+        ShowWarning(result.Title, result.UserMessage);
     }
 
     private void ShowInfo(string title, string message, string confirmText = "OK") =>
@@ -740,10 +848,11 @@ public partial class MainViewModel : ViewModelBase
     {
         if (_isLoadingSettings) return;
 
-        if (value < 1)
+        int clamped = SettingLimits.ClampIntervalMs(value);
+        if (clamped != value)
         {
             OnPropertyChanged(nameof(MinIntervalMs));
-            MinIntervalMs = 1;
+            MinIntervalMs = clamped;
             return;
         }
 
@@ -762,18 +871,11 @@ public partial class MainViewModel : ViewModelBase
     {
         if (_isLoadingSettings) return;
 
-        if (value < 1)
+        int clamped = SettingLimits.ClampMaxIntervalMs(value, MinIntervalMs);
+        if (clamped != value)
         {
             OnPropertyChanged(nameof(MaxIntervalMs));
-            MaxIntervalMs = 1;
-            return;
-        }
-
-        // Only adjust the edited field upward so editing Max never drags Min down.
-        if (value < MinIntervalMs)
-        {
-            OnPropertyChanged(nameof(MaxIntervalMs));
-            MaxIntervalMs = MinIntervalMs;
+            MaxIntervalMs = clamped;
         }
     }
 
@@ -787,7 +889,9 @@ public partial class MainViewModel : ViewModelBase
         }
         else if (MaxIntervalMs <= MinIntervalMs)
         {
-            MaxIntervalMs = Math.Min(60000, MinIntervalMs + 50);
+            MaxIntervalMs = Math.Min(
+                SettingLimits.MaxIntervalMs,
+                MinIntervalMs + SettingLimits.DefaultRandomMaxStepMs);
         }
     }
 
@@ -820,11 +924,6 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(CanSelectMouseButton));
     }
 
-    partial void OnShowWaylandSetupDetailsChanged(bool value)
-    {
-        OnPropertyChanged(nameof(IsWaylandSetupSectionVisible));
-    }
-
     private void RefreshPatternButtonsState()
     {
         OnPropertyChanged(nameof(CanMovePatternUp));
@@ -845,9 +944,10 @@ public partial class MainViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(RequiresManualSetup));
         OnPropertyChanged(nameof(IsHotkeyReady));
-        OnPropertyChanged(nameof(IsPortalAvailable));
-        OnPropertyChanged(nameof(SetupInstructions));
-        OnPropertyChanged(nameof(IsWaylandSetupSectionVisible));
+        OnPropertyChanged(nameof(IsEmergencyKeyPending));
+        OnPropertyChanged(nameof(IsWaylandEmergencyKeyReady));
+        OnPropertyChanged(nameof(StartDisabledReason));
+        Settings.RefreshHotkeyState();
         UpdateCanStart();
     }
 }
