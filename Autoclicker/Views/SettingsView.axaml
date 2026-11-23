@@ -1,0 +1,400 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Autoclicker.ViewModels"
+             x:Class="Autoclicker.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel"
+             HorizontalAlignment="Stretch"
+             VerticalAlignment="Stretch">
+    <Border Background="#CC000000"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Stretch">
+        <Border x:Name="CardBorder"
+                Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                BorderThickness="1.5"
+                CornerRadius="8"
+                Padding="22"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                MinWidth="520"
+                MaxWidth="640"
+                MaxHeight="560"
+                Margin="24"
+                KeyboardNavigation.TabNavigation="Cycle">
+            <Grid RowDefinitions="Auto,*,Auto" RowSpacing="12">
+
+                <!-- ═══════ Header ═══════ -->
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <PathIcon Data="{StaticResource SettingsGearGeometry}" Width="18" Height="18" />
+                        <TextBlock Text="Settings" FontSize="18" FontWeight="Bold" VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <Button x:Name="TopCloseButton"
+                            Grid.Column="1"
+                            Content="✕"
+                            Classes="icon"
+                            Command="{Binding CloseCommand}"
+                            ToolTip.Tip="Close settings (Esc)"
+                            AutomationProperties.Name="Close settings" />
+                </Grid>
+
+                <!-- ═══════ Tabs ═══════ -->
+                <TabControl Grid.Row="1" SelectedIndex="{Binding SelectedTabIndex}">
+
+                    <!-- ─── Tab 1: General ─── -->
+                    <TabItem Header="General">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      MaxHeight="390">
+                            <StackPanel Spacing="14" Margin="4,10,4,4">
+                                <Grid ColumnDefinitions="170,*" ColumnSpacing="12">
+                                    <TextBlock Grid.Column="0"
+                                               Text="Theme:"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center" />
+                                    <ComboBox Grid.Column="1"
+                                              ItemsSource="{Binding AvailableThemes}"
+                                              SelectedItem="{Binding Theme}"
+                                              Width="180" />
+                                </Grid>
+
+                                <StackPanel Spacing="4">
+                                    <Grid ColumnDefinitions="170,*" ColumnSpacing="12">
+                                        <TextBlock Grid.Column="0"
+                                                   Text="Start countdown (s):"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding AvailableStartDelays}"
+                                                  SelectedItem="{Binding StartDelaySeconds}"
+                                                  Width="180" />
+                                    </Grid>
+                                    <TextBlock FontSize="11"
+                                               Opacity="0.7"
+                                               TextWrapping="Wrap"
+                                               Text="Shows a full-screen countdown (in seconds) after pressing Start before beginning clicks." />
+                                </StackPanel>
+
+                                <StackPanel Spacing="4">
+                                    <CheckBox Content="Always on top (keep Autoclicker above other windows)"
+                                              IsChecked="{Binding AlwaysOnTop}" />
+                                    <TextBlock FontSize="11"
+                                               Opacity="0.7"
+                                               TextWrapping="Wrap"
+                                               IsVisible="{Binding IsWayland}"
+                                               Text="ℹ️ Note: May be ignored by some Wayland compositors." />
+                                </StackPanel>
+
+                                <Separator Margin="0,4" />
+
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Reset" FontWeight="SemiBold" />
+                                    <TextBlock FontSize="12"
+                                               Opacity="0.75"
+                                               TextWrapping="Wrap"
+                                               Text="Restores click interval, repetitions, mouse button/action, and movement settings back to their defaults. Keeps your saved coordinate pattern." />
+
+                                    <Button Content="Restore default settings"
+                                            Command="{Binding RequestRestoreDefaultsCommand}"
+                                            IsVisible="{Binding !IsRestoreConfirmationVisible}"
+                                            HorizontalAlignment="Left" />
+
+                                    <Border Background="#22FFA500"
+                                            BorderBrush="Orange"
+                                            BorderThickness="1"
+                                            CornerRadius="5"
+                                            Padding="10"
+                                            IsVisible="{Binding IsRestoreConfirmationVisible}">
+                                        <StackPanel Spacing="8">
+                                            <TextBlock FontSize="12"
+                                                       FontWeight="SemiBold"
+                                                       TextWrapping="Wrap"
+                                                       Text="Are you sure you want to restore default click and movement settings?" />
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <Button Content="Yes, restore defaults"
+                                                        Command="{Binding ConfirmRestoreDefaultsCommand}" />
+                                                <Button Content="Cancel"
+                                                        Command="{Binding CancelRestoreDefaultsCommand}" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <!-- ─── Tab 2: Emergency Key ─── -->
+                    <TabItem Header="Emergency Key">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      MaxHeight="390">
+                            <StackPanel Spacing="10" Margin="4,10,4,4">
+
+                                <!-- Wayland configuration -->
+                                <StackPanel Spacing="10" IsVisible="{Binding RequiresManualSetup}">
+                                    <Border Background="#33FFA500"
+                                            BorderBrush="Orange"
+                                            BorderThickness="1.5"
+                                            CornerRadius="5"
+                                            Padding="10"
+                                            IsVisible="{Binding IsVerificationBannerVisible}">
+                                        <TextBlock FontSize="12"
+                                                   FontWeight="SemiBold"
+                                                   TextWrapping="Wrap"
+                                                   Text="⚠️ Press your system shortcut once to verify it for this session before starting." />
+                                    </Border>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <TextBlock Text="Session status:" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <TextBlock Text="✔ Active (verified for this session)"
+                                                   Foreground="Green"
+                                                   FontWeight="Bold"
+                                                   IsVisible="{Binding IsHotkeyReady}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock Text="⏳ Not verified this session — press your shortcut once"
+                                                   Foreground="OrangeRed"
+                                                   FontWeight="Bold"
+                                                   IsVisible="{Binding !IsHotkeyReady}"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+
+                                    <TextBlock FontSize="12"
+                                               Opacity="0.75"
+                                               TextWrapping="Wrap"
+                                               Text="On Wayland, security isolation prevents apps from listening to global keys directly. Your emergency stop shortcut must be verified once per session while Autoclicker is idle." />
+
+                                    <StackPanel Orientation="Horizontal"
+                                                Spacing="8"
+                                                IsVisible="{Binding IsPortalAvailable}">
+                                        <Button Content="🔑 Configure via Portal"
+                                                Command="{Binding ConfigureViaPortalCommand}" />
+                                        <Button Content="💡"
+                                                Command="{Binding ShowPortalInfoCommand}"
+                                                Background="Transparent"
+                                                ToolTip.Tip="Why did this fail or what is this?" />
+                                    </StackPanel>
+
+                                    <TextBlock Text="─── Manual Setup (System Keyboard Settings) ───"
+                                               FontWeight="SemiBold"
+                                               Opacity="0.7"
+                                               Margin="0,4,0,0" />
+
+                                    <TextBlock TextWrapping="Wrap"
+                                               FontSize="12"
+                                               Text="1. Open System Settings (GNOME / KDE / COSMIC) → Keyboard → Custom Shortcuts" />
+                                    <TextBlock TextWrapping="Wrap"
+                                               FontSize="12"
+                                               Text="2. Add a new shortcut with this command:" />
+
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                        <TextBox Grid.Column="0"
+                                                 Text="{Binding StopCommand, Mode=OneWay}"
+                                                 IsReadOnly="True"
+                                                 FontSize="11"
+                                                 FontFamily="Courier New, monospace"
+                                                 VerticalContentAlignment="Center" />
+                                        <Button Grid.Column="1"
+                                                Content="📋 Copy command"
+                                                Command="{Binding CopyStopCommandCommand}" />
+                                    </Grid>
+
+                                    <TextBlock TextWrapping="Wrap"
+                                               FontSize="12"
+                                               Text="3. Assign your preferred key combo (e.g., Ctrl+Escape)" />
+
+                                    <TextBlock TextWrapping="Wrap"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               Text="4. Press your assigned key combo now — Autoclicker will detect the D-Bus signal and activate automatically." />
+                                </StackPanel>
+
+                                <!-- Windows / X11 informational display -->
+                                <StackPanel Spacing="12" IsVisible="{Binding !RequiresManualSetup}">
+                                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                        <TextBlock Text="Emergency stop key:"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" />
+                                        <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="4"
+                                                Padding="10,4">
+                                            <TextBlock Text="{Binding FixedStopKeyName}"
+                                                       FontWeight="Bold"
+                                                       FontFamily="Courier New, monospace" />
+                                        </Border>
+                                        <TextBlock Text="✔ Active"
+                                                   Foreground="Green"
+                                                   FontWeight="Bold"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+
+                                    <TextBlock FontSize="12"
+                                               Opacity="0.8"
+                                               TextWrapping="Wrap"
+                                               Text="Press ESC at any time while clicking (or during the start countdown) to stop Autoclicker immediately." />
+                                </StackPanel>
+
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <!-- ─── Tab 3: Logs ─── -->
+                    <TabItem Header="Logs">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      MaxHeight="390">
+                            <StackPanel Spacing="12" Margin="4,10,4,4">
+                                <TextBlock Text="Log Folder" FontWeight="SemiBold" />
+
+                                <TextBox Text="{Binding LogDirectoryDisplay, Mode=OneWay}"
+                                         IsReadOnly="True"
+                                         FontSize="12"
+                                         FontFamily="Courier New, monospace" />
+
+                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" VerticalAlignment="Center">
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding LogStatsText}"
+                                               FontSize="12"
+                                               Opacity="0.8"
+                                               VerticalAlignment="Center" />
+                                    <Button Grid.Column="1"
+                                            Content="📋 Copy path"
+                                            Command="{Binding CopyLogPathCommand}" />
+                                    <Button Grid.Column="2"
+                                            Content="📂 Open folder"
+                                            Command="{Binding OpenLogFolderCommand}" />
+                                </Grid>
+
+                                <Separator Margin="0,2" />
+
+                                <StackPanel Spacing="8">
+                                    <Button Content="🗑 Delete old logs"
+                                            Command="{Binding RequestDeleteOldLogsCommand}"
+                                            IsVisible="{Binding !IsDeleteLogsConfirmationVisible}"
+                                            HorizontalAlignment="Left" />
+
+                                    <Border Background="#22FFA500"
+                                            BorderBrush="Orange"
+                                            BorderThickness="1"
+                                            CornerRadius="5"
+                                            Padding="10"
+                                            IsVisible="{Binding IsDeleteLogsConfirmationVisible}">
+                                        <StackPanel Spacing="8">
+                                            <TextBlock FontSize="12"
+                                                       FontWeight="SemiBold"
+                                                       TextWrapping="Wrap"
+                                                       Text="Delete all older log files? The current session log file will be kept." />
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <Button Content="Yes, delete old logs"
+                                                        Command="{Binding ConfirmDeleteOldLogsCommand}" />
+                                                <Button Content="Cancel"
+                                                        Command="{Binding CancelDeleteOldLogsCommand}" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+
+                                <TextBlock FontSize="11"
+                                           Opacity="0.7"
+                                           TextWrapping="Wrap"
+                                           Text="ℹ️ Rolling log files (autoclicker-*.log) are rotated daily, capped at 5 MB per file, and retained for up to 7 files. Set AUTOCLICKER_LOG_LEVEL=Debug before launching for verbose output." />
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <!-- ─── Tab 4: About ─── -->
+                    <TabItem Header="About">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      MaxHeight="390">
+                            <StackPanel Spacing="10" Margin="4,10,4,4">
+                                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding ProductName}"
+                                               FontSize="18"
+                                               FontWeight="Bold"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding AppVersion}"
+                                               FontSize="14"
+                                               FontFamily="Courier New, monospace"
+                                               VerticalAlignment="Center"
+                                               Opacity="0.9" />
+                                </StackPanel>
+
+                                <Border Background="#22FFA500"
+                                        BorderBrush="Orange"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Padding="8,4"
+                                        HorizontalAlignment="Left"
+                                        IsVisible="{Binding IsDevelopmentBuild}">
+                                    <TextBlock Text="Development build — no release published yet"
+                                               FontSize="11"
+                                               FontWeight="SemiBold" />
+                                </Border>
+
+                                <Grid ColumnDefinitions="130,*"
+                                      RowDefinitions="Auto,Auto,Auto,Auto"
+                                      RowSpacing="4"
+                                      ColumnSpacing="10"
+                                      Margin="0,4">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Operating System:" FontWeight="SemiBold" FontSize="12" />
+                                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding OsDescription}" FontSize="12" TextWrapping="Wrap" />
+
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Session:" FontWeight="SemiBold" FontSize="12" />
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Session}" FontSize="12" />
+
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text=".NET Runtime:" FontWeight="SemiBold" FontSize="12" />
+                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DotNetRuntime}" FontSize="12" />
+
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Avalonia UI:" FontWeight="SemiBold" FontSize="12" />
+                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding AvaloniaVersion}" FontSize="12" />
+                                </Grid>
+
+                                <TextBlock Text="Diagnostic Information"
+                                           FontWeight="SemiBold"
+                                           FontSize="12"
+                                           Margin="0,4,0,0" />
+
+                                <TextBox Text="{Binding Diagnostics, Mode=OneWay}"
+                                         IsReadOnly="True"
+                                         AcceptsReturn="True"
+                                         FontSize="11"
+                                         FontFamily="Courier New, monospace"
+                                         Height="96" />
+
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <Button Content="📋 Copy diagnostic info"
+                                            Command="{Binding CopyDiagnosticsCommand}" />
+                                    <Button Content="🔗 GitHub Repository (skb127/Autoclicker)"
+                                            Command="{Binding OpenRepositoryCommand}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                </TabControl>
+
+                <!-- ═══════ Footer ═══════ -->
+                <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding StatusMessage}"
+                               IsVisible="{Binding HasStatusMessage}"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="Green"
+                               VerticalAlignment="Center"
+                               TextWrapping="Wrap" />
+
+                    <Button x:Name="BottomCloseButton"
+                            Grid.Column="1"
+                            Content="Close"
+                            Command="{Binding CloseCommand}"
+                            MinWidth="90"
+                            HorizontalContentAlignment="Center" />
+                </Grid>
+
+            </Grid>
+        </Border>
+    </Border>
+</UserControl>

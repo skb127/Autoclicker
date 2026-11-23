@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Autoclicker.ViewModels"
              xmlns:controls="clr-namespace:Autoclicker.Controls"
+             xmlns:views="clr-namespace:Autoclicker.Views"
              xmlns:viewControls="clr-namespace:Autoclicker.Views.Controls"
              x:Class="Autoclicker.Views.MainView"
              x:DataType="vm:MainViewModel">
@@ -9,8 +10,33 @@
         <!-- Main Application Content inside ScrollViewer -->
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,*,Auto,Auto" Margin="20">
-                <TextBlock Grid.ColumnSpan="2" Text="Cross-platform Autoclicker" FontSize="24"
-                           HorizontalAlignment="Center" Margin="0,0,0,16" />
+
+                <!-- ═══════ Header: Title & Settings Gear Button ═══════ -->
+                <Grid Grid.Row="0" Grid.ColumnSpan="2" ColumnDefinitions="*,Auto" Margin="0,0,0,16">
+                    <TextBlock Grid.ColumnSpan="2"
+                               Text="Cross-platform Autoclicker"
+                               FontSize="24"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+
+                    <Panel Grid.Column="1" VerticalAlignment="Center">
+                        <Button Classes="icon"
+                                Command="{Binding OpenSettingsCommand}"
+                                IsEnabled="{Binding !IsClicking}"
+                                ToolTip.Tip="Settings (general, emergency key, logs, about)"
+                                AutomationProperties.Name="Settings">
+                            <PathIcon Data="{StaticResource SettingsGearGeometry}" Width="18" Height="18" />
+                        </Button>
+                        <Ellipse Width="9"
+                                 Height="9"
+                                 Fill="Orange"
+                                 HorizontalAlignment="Right"
+                                 VerticalAlignment="Top"
+                                 Margin="0,2,2,0"
+                                 IsHitTestVisible="False"
+                                 IsVisible="{Binding IsEmergencyKeyPending}" />
+                    </Panel>
+                </Grid>
 
                 <!-- ═══════ Left Column: Configuration Expanders ═══════ -->
                 <StackPanel Grid.Row="1" Grid.Column="0" Spacing="10" Margin="0,0,10,0">
@@ -179,63 +205,64 @@
                     </Expander>
                 </StackPanel>
 
-                <!-- ═══════ Wayland Emergency Key Section (only visible on Wayland) ═══════ -->
+                <!-- ═══════ Wayland Emergency Key Status Banner (only visible on Wayland) ═══════ -->
+
+                <!-- 1. Pending state: prominent orange banner explaining why Start is disabled -->
                 <Border Grid.Row="2" Grid.ColumnSpan="2" Grid.Column="0"
-                        IsVisible="{Binding RequiresManualSetup}"
-                        BorderBrush="Orange" BorderThickness="1" CornerRadius="5"
-                        Padding="12" Margin="0,12,0,0">
-                    <StackPanel Spacing="8">
-
-                        <!-- Header with status -->
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="⚠️ Wayland Emergency Key" FontWeight="Bold" FontSize="14"
-                                       VerticalAlignment="Center" />
-                            <TextBlock Text="✔ Active" Foreground="Green" FontWeight="Bold"
-                                       IsVisible="{Binding IsHotkeyReady}" VerticalAlignment="Center" />
-                            <TextBlock Text="⏳ Press your shortcut key to verify" Foreground="OrangeRed"
+                        IsVisible="{Binding IsEmergencyKeyPending}"
+                        Background="#33FFA500"
+                        BorderBrush="Orange"
+                        BorderThickness="2"
+                        CornerRadius="6"
+                        Padding="14,12"
+                        Margin="0,14,0,0">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="14">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="⚠️ Emergency stop key not verified"
                                        FontWeight="Bold"
-                                       IsVisible="{Binding !IsHotkeyReady}" VerticalAlignment="Center" />
-                            <Button Content="⚙️ Show / Hide Setup"
-                                    Command="{Binding ToggleWaylandSetupDetailsCommand}"
-                                    IsVisible="{Binding IsHotkeyReady}"
-                                    FontSize="11" Padding="8,2"
-                                    VerticalAlignment="Center" />
+                                       FontSize="14" />
+                            <TextBlock FontSize="12"
+                                       TextWrapping="Wrap"
+                                       Text="On Wayland, Autoclicker can't listen for a stop key by itself. Start is disabled until you press your system shortcut once (required every session)." />
                         </StackPanel>
 
-                        <!-- Configuration options (visible when not configured or when toggled open) -->
-                        <StackPanel IsVisible="{Binding IsWaylandSetupSectionVisible}" Spacing="8">
+                        <Button Grid.Column="1"
+                                Content="Set up…"
+                                Command="{Binding OpenEmergencyKeySettingsCommand}"
+                                FontWeight="SemiBold"
+                                Padding="14,6"
+                                VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
 
-                            <!-- Portal configuration row with info button -->
-                            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsPortalAvailable}">
-                                <Button Content="🔑 Configure via Portal"
-                                        Command="{Binding ConfigureWaylandHotkeyCommand}"
-                                        HorizontalAlignment="Left" />
-                                <Button Content="💡"
-                                        Command="{Binding OpenPortalInfoModalCommand}"
-                                        Background="Transparent"
-                                        ToolTip.Tip="Why did this fail or what is this?" />
-                            </StackPanel>
-
-                            <!-- Manual D-Bus setup instructions -->
-                            <TextBlock Text="─── Manual Setup (System Keyboard Settings) ───"
-                                       FontWeight="SemiBold" Foreground="Gray" Margin="0,4,0,0" />
-
-                            <TextBlock TextWrapping="Wrap" FontSize="12"
-                                       Text="1. Open System Settings (GNOME / KDE / COSMIC) → Keyboard → Custom Shortcuts" />
-                            <TextBlock TextWrapping="Wrap" FontSize="12"
-                                       Text="2. Add a new shortcut with this command:" />
-
-                            <TextBox Text="{Binding SetupInstructions, Mode=OneWay}"
-                                     IsReadOnly="True" FontSize="11"
-                                     FontFamily="Courier New, monospace" />
-
-                            <TextBlock TextWrapping="Wrap" FontSize="12"
-                                       Text="3. Assign your preferred key combo (e.g., Ctrl+Escape)" />
-
-                            <TextBlock TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold"
-                                       Text="4. Press your assigned key combo now — Autoclicker will detect the D-Bus signal and activate automatically." />
+                <!-- 2. Ready state: compact green confirmation bar -->
+                <Border Grid.Row="2" Grid.ColumnSpan="2" Grid.Column="0"
+                        IsVisible="{Binding IsWaylandEmergencyKeyReady}"
+                        Background="#1E22C55E"
+                        BorderBrush="#22C55E"
+                        BorderThickness="1"
+                        CornerRadius="5"
+                        Padding="12,8"
+                        Margin="0,14,0,0">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock Text="✔ Emergency stop active"
+                                       Foreground="#22C55E"
+                                       FontWeight="Bold"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text="— press your shortcut at any time to stop."
+                                       FontSize="12"
+                                       Opacity="0.85"
+                                       VerticalAlignment="Center" />
                         </StackPanel>
-                    </StackPanel>
+
+                        <Button Grid.Column="1"
+                                Content="Settings"
+                                Command="{Binding OpenEmergencyKeySettingsCommand}"
+                                FontSize="12"
+                                Padding="10,4"
+                                VerticalAlignment="Center" />
+                    </Grid>
                 </Border>
 
                 <!-- ═══════ Start / Stop Buttons ═══════ -->
@@ -244,6 +271,8 @@
                     <Button Content="Start Autoclick"
                             Command="{Binding StartAutoclickCommand}"
                             IsEnabled="{Binding CanStartAutoclick}"
+                            ToolTip.Tip="{Binding StartDisabledReason}"
+                            ToolTip.ShowOnDisabled="True"
                             Width="160" HorizontalContentAlignment="Center" />
 
                     <Button Content="Stop (Or press ESCAPE)"
@@ -254,10 +283,14 @@
             </Grid>
         </ScrollViewer>
 
+        <!-- ═══════ Settings Modal Overlay ═══════ -->
+        <views:SettingsView DataContext="{Binding Settings}"
+                            IsVisible="{Binding IsOpen}"
+                            ZIndex="50" />
+
         <!-- ═══════ Modal Message Dialog Overlay ═══════ -->
         <viewControls:MessageDialog Message="{Binding ActiveDialog}"
                                     CloseCommand="{Binding CloseDialogCommand}"
                                     ZIndex="100" />
     </Grid>
 </UserControl>
-
