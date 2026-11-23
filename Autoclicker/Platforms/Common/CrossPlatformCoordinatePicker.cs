@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Autoclicker.Platforms.Linux;
 using Autoclicker.Services;
 using Avalonia;
 using Avalonia.Controls;
@@ -41,12 +42,16 @@ public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
 
         var tcs = new TaskCompletionSource<(int X, int Y)?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var overlayWindows = new List<Window>();
+        IDisposable? keyboardFocusLease = null;
         bool isClosingAll = false;
 
         void CloseAllOverlays()
         {
             if (isClosingAll) return;
             isClosingAll = true;
+
+            keyboardFocusLease?.Dispose();
+            keyboardFocusLease = null;
 
             foreach (var win in overlayWindows)
             {
@@ -96,6 +101,7 @@ public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
             {
                 overlayWindows[0].Activate();
                 overlayWindows[0].Focus();
+                keyboardFocusLease = X11OverlayWindowHelper.AcquireKeyboardFocus(overlayWindows[0], _logger);
             }
 
             return await tcs.Task;
@@ -227,6 +233,14 @@ public sealed class CrossPlatformCoordinatePicker : ICoordinatePicker
             overlayWindow.Position = screen.Bounds.Position;
             overlayWindow.Width = logicalWidth;
             overlayWindow.Height = logicalHeight;
+
+            X11OverlayWindowHelper.ConfigureOverrideRedirect(
+                overlayWindow,
+                screen.Bounds.X,
+                screen.Bounds.Y,
+                screen.Bounds.Width,
+                OperatingSystem.IsLinux() ? Math.Max(100, screen.Bounds.Height - 1) : screen.Bounds.Height,
+                logger);
         }
         else
         {

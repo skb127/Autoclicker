@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using Autoclicker.Core;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
@@ -41,7 +42,7 @@ public static class AppLogging
 
         Log.Logger = CreateLogger(ActiveLogDirectory, MinimumLevel);
 
-        string version = typeof(AppLogging).Assembly.GetName().Version?.ToString() ?? "unknown";
+        string version = AppInfo.DisplayVersion;
         string? rawSessionType = Environment.GetEnvironmentVariable("XDG_SESSION_TYPE");
         string sessionType = string.IsNullOrWhiteSpace(rawSessionType) ? "N/A" : rawSessionType;
 
