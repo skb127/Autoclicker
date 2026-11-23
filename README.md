@@ -11,6 +11,11 @@ Cross-platform desktop autoclicker built with **Avalonia UI** and **.NET 8** for
 - **Natural Timing & Movement:**
   - Fixed interval or randomized `[Min, Max]` ms range (measured start-to-start).
   - Optional **Human-like movement (WindMouse)** (`Slow`, `Normal`, `Fast`) and **Coordinate Jitter** (`± px`).
+- **Settings Panel (⚙️):**
+  - **General:** Theme (`System`, `Light`, `Dark`), full-screen start countdown (`0`, `3`, `5 s`), `Always on top`, and **Restore default settings** (preserves your coordinate pattern).
+  - **Emergency Key:** Shows `ESC` on Windows/X11, or Wayland session verification status, portal configuration, and one-click `busctl` command copy.
+  - **Logs:** Displays the active log directory, file count and size, **Copy path**, **Open folder**, and **Delete old logs**.
+  - **About:** Displays the application version (`0.1.0-dev (<commit>)` until the first release is cut in `Directory.Build.props`), runtime diagnostics with one-click copy, and a link to the GitHub repository.
 - **Auto-Save:** Automatically saves your settings and pattern to `~/.config/Autoclicker/settings.json` (Linux) or `%APPDATA%\Autoclicker\settings.json` (Windows).
 
 ## Run
@@ -26,6 +31,8 @@ Autoclicker writes rolling log files (up to 7 daily files, 5 MB per file with au
 - **Windows:** `%LOCALAPPDATA%\Autoclicker\logs\autoclicker-YYYYMMDD.log`
 - **Linux:** `$XDG_STATE_HOME/Autoclicker/logs/autoclicker-YYYYMMDD.log` (defaults to `~/.local/state/Autoclicker/logs/`)
 
+You can also open the log folder or clean up older log files directly from **⚙️ Settings ▸ Logs**.
+
 The default log level is `Information`. To enable `Debug` (or `Verbose`, `Warning`, `Error`, `Fatal`) logging for troubleshooting, set the `AUTOCLICKER_LOG_LEVEL` environment variable:
 
 ```bash
@@ -35,7 +42,7 @@ AUTOCLICKER_LOG_LEVEL=Debug dotnet run --project Autoclicker.Desktop/Autoclicker
 ## Wayland Notes
 
 - **Screen Sharing Permission:** On first start, select the monitor where your pattern coordinates are located and enable pointer control.
-- **Emergency Stop Key:** On Windows and Linux (X11), `Escape` works automatically with no setup. On Wayland, configure an emergency stop shortcut via the portal button (if supported by your desktop) or bind the `busctl` command shown in the app inside your system keyboard settings, then press your assigned key combo once while Autoclicker is open so it verifies the D-Bus signal and unlocks **Start Autoclick**.
+- **Emergency Stop Key:** On Windows and Linux (X11), `Escape` works automatically with no setup. On Wayland, open **⚙️ Settings ▸ Emergency Key** (or click **Set up…** on the main-screen banner) to configure a shortcut via the portal button (if supported by your desktop) or copy the `busctl` command into your system keyboard settings, then press your assigned key combo once while Autoclicker is open so it verifies the D-Bus signal for the session and unlocks **Start Autoclick**.
 
 ## Docs
 

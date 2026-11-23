@@ -57,16 +57,32 @@ This document tracks ideas and enhancements planned for future phases of **Autoc
 
 ## 7. Automated Unit Test Suite (`Autoclicker.Tests`)
 
-- `Autoclicker.Tests` is initialized with logging, settings, and Wayland hotkey verification tests (`SettingsStoreLoggingTests`, `LogPathsAndLevelTests`, `WaylandHotkeyVerificationTests`).
+- `Autoclicker.Tests` includes logging, settings compatibility, app info, log maintenance, settings view model, and Wayland hotkey verification tests (`SettingsStoreLoggingTests`, `LogPathsAndLevelTests`, `WaylandHotkeyVerificationTests`, `AppInfoTests`, `LogMaintenanceTests`, `SettingsViewModelTests`).
 - Expand the suite to cover the remaining pure platform-agnostic classes in `Autoclicker/Core/`:
   - `AxisTransformTests`: verify `FromScreenAndStreamSize`, `FromSamples`, `ToStream`, `ToGlobal`, and invalid/anisotropic scale rejection.
   - `IntervalProviderTests`: verify bounds `[Min, Max]`, `Min == Max` constant behavior, and Gaussian clamping.
   - `WindMouseTests`: verify deterministic output with seeded `Random`, exact convergence on `(destX, destY)`, step speed bounds, and zero-distance handling.
   - `ClickEngineTests`: verify action sequences (`Click`, `DoubleClick`, `Hold`, `Drag`) and guaranteed button release (`isDown: false`) when `CancellationToken` triggers mid-action using a fake `IInputSimulator`.
-  - Additional `SettingsStoreTests`: verify `Version` / edge-case JSON round-tripping and missing-file fallback.
 
 ---
 
 ## 8. Logging UI Enhancements
 
-- Add an **"Open Log Folder"** button/link in the UI so users can quickly locate `autoclicker-*.log` files when troubleshooting.
+- **Implemented:** Settings ▸ **Logs** provides the log folder path, **Copy path**, **Open folder** (system file manager), file count / total size summary, and **Delete old logs** (with confirmation, keeping the active session log).
+- **Future ideas:**
+  - Add a log-level selector (`Information` / `Debug`) in Settings ▸ Logs persisted to `settings.json` and applied on next startup (currently configured via `AUTOCLICKER_LOG_LEVEL`).
+  - Optional in-app tail viewer showing the last ~200 lines of the active log file.
+
+---
+
+## 9. Configurable Stop Key on Windows & X11
+
+- Currently, Windows (`Win32HotkeyListener`) and Linux X11 (`X11HotkeyListener`) use a fixed `ESC` emergency stop key (displayed in Settings ▸ **Emergency Key**).
+- **Future enhancement:** Allow selecting a custom emergency stop key from a curated list of safe keys (`Escape`, `F1–F12`, `Pause`, `ScrollLock`, `Insert`, `Home`, `End`) plus optional modifier checkboxes (`Ctrl`, `Alt`, `Shift`), backed by an explicit lookup table mapping keys to Win32 virtual-key codes and X11 keysyms (`XKeysymToKeycode`).
+
+---
+
+## 10. Wayland Desktop Shortcut Settings Launcher & Optional Window Visibility
+
+- **Open System Shortcut Settings on Wayland:** Optionally detect `XDG_CURRENT_DESKTOP` (`GNOME`, `KDE`, `COSMIC`) and offer a convenience button to launch the desktop's native keyboard shortcuts page (`gnome-control-center keyboard`, `systemsettings kcm_keys`, `cosmic-settings keyboard`). Deferred to avoid spawning external desktop settings apps.
+- **Optional "Hide window while clicking" toggle:** Currently the main window always hides during clicking so targets underneath can be clicked reliably. Add an optional toggle in Settings ▸ **General** for users who prefer keeping the window visible on a secondary monitor.
