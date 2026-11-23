@@ -20,7 +20,10 @@ public sealed record AppSettings(
     int JitterPx = 0,
     bool HumanMovement = false,
     MovementSpeedKind MovementSpeed = MovementSpeedKind.Normal,
-    List<Coordinate>? Pattern = null);
+    List<Coordinate>? Pattern = null,
+    ThemePreference Theme = ThemePreference.System,
+    int StartDelaySeconds = 0,
+    bool AlwaysOnTop = false);
 
 [JsonSourceGenerationOptions(
     WriteIndented = true,

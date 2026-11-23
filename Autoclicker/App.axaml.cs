@@ -39,6 +39,7 @@ public class App : Application
             mainWindow.Closing += (_, _) => mainViewModel?.SaveCurrentSettings();
 
             desktop.MainWindow = mainWindow;
+            mainViewModel?.Settings.ReapplyWindowPreferences();
         }
         else if (ApplicationLifetime is ISingleViewApplicationLifetime singleViewPlatform)
         {

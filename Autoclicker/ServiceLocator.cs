@@ -1,4 +1,5 @@
 using System;
+using Autoclicker.Logging;
 using Autoclicker.Platforms.Common;
 using Autoclicker.Platforms.Linux;
 using Autoclicker.Platforms.Windows;
@@ -28,6 +29,12 @@ public sealed class ServiceLocator
         // 2. Register cross-platform application services and ViewModels
         services.AddSingleton<ISettingsStore, SettingsStore>();
         services.AddSingleton<IScreenBoundsProvider, AvaloniaScreenBoundsProvider>();
+        services.AddSingleton<IDesktopIntegration, AvaloniaDesktopIntegration>();
+        services.AddSingleton(sp => new SettingsViewModel(
+            sp.GetRequiredService<IHotkeyListener>(),
+            sp.GetRequiredService<IDesktopIntegration>(),
+            AppLogging.ActiveLogDirectory,
+            sp.GetService<ILogger<SettingsViewModel>>()));
         services.AddTransient<MainViewModel>();
 
         string? linuxSessionType = null;

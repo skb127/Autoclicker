@@ -1,0 +1,8 @@
+<Project>
+    <PropertyGroup>
+        <!-- No release has been published yet. Remove VersionSuffix when cutting the first release. -->
+        <VersionPrefix>0.1.0</VersionPrefix>
+        <VersionSuffix>dev</VersionSuffix>
+        <Product>Autoclicker</Product>
+    </PropertyGroup>
+</Project>
