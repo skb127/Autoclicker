@@ -40,10 +40,12 @@ public sealed class SettingsStoreLoggingTests : IDisposable
     [Fact]
     public void Load_WhenSettingsFileIsCorrupt_ReturnsDefaultSettingsAndWritesWarningWithExceptionToLog()
     {
+        // Arrange
         string settingsPath = Path.Combine(_tempRoot, "settings.json");
         string logDir = Path.Combine(_tempRoot, "logs");
         File.WriteAllText(settingsPath, "{ invalid json");
 
+        // Act
         AppSettings loaded;
         using (var serilogLogger = AppLogging.CreateLogger(
                    logDir,
@@ -56,6 +58,7 @@ public sealed class SettingsStoreLoggingTests : IDisposable
             loaded = store.Load();
         }
 
+        // Assert
         Assert.Equal(new AppSettings().MinIntervalMs, loaded.MinIntervalMs);
         Assert.Equal(new AppSettings().MaxIntervalMs, loaded.MaxIntervalMs);
         Assert.Null(loaded.Pattern);
@@ -69,11 +72,14 @@ public sealed class SettingsStoreLoggingTests : IDisposable
     [Fact]
     public void Save_WhenDestinationIsDirectory_WritesWarningWithExceptionAndDoesNotThrow()
     {
+        // Arrange
         string settingsPath = Path.Combine(_tempRoot, "settings.json");
         string conflictingTmpDir = settingsPath + ".tmp";
         string logDir = Path.Combine(_tempRoot, "logs");
         Directory.CreateDirectory(conflictingTmpDir);
 
+        // Act
+        Exception? exception;
         using (var serilogLogger = AppLogging.CreateLogger(
                    logDir,
                    LogEventLevel.Information,
@@ -82,9 +88,11 @@ public sealed class SettingsStoreLoggingTests : IDisposable
         using (var loggerFactory = new SerilogLoggerFactory(serilogLogger, dispose: false))
         {
             var store = new SettingsStore(settingsPath, loggerFactory.CreateLogger<SettingsStore>());
-            var exception = Record.Exception(() => store.Save(new AppSettings()));
-            Assert.Null(exception);
+            exception = Record.Exception(() => store.Save(new AppSettings()));
         }
+
+        // Assert
+        Assert.Null(exception);
 
         string logContents = ReadCombinedLogs(logDir);
         Assert.Contains("[WRN]", logContents, StringComparison.Ordinal);
@@ -95,6 +103,7 @@ public sealed class SettingsStoreLoggingTests : IDisposable
     [Fact]
     public void SaveAndLoad_WhenValid_RoundTripsWithoutWarnings()
     {
+        // Arrange
         string settingsPath = Path.Combine(_tempRoot, "settings.json");
         string logDir = Path.Combine(_tempRoot, "logs");
         var expected = new AppSettings(
@@ -109,8 +118,12 @@ public sealed class SettingsStoreLoggingTests : IDisposable
             JitterPx: 4,
             HumanMovement: true,
             MovementSpeed: MovementSpeedKind.Fast,
-            Pattern: [new Coordinate(100, 200), new Coordinate(300, 400)]);
+            Pattern: [new Coordinate(100, 200), new Coordinate(300, 400)],
+            Theme: ThemePreference.Dark,
+            StartDelaySeconds: 3,
+            AlwaysOnTop: true);
 
+        // Act
         AppSettings loaded;
         using (var serilogLogger = AppLogging.CreateLogger(
                    logDir,
@@ -124,6 +137,7 @@ public sealed class SettingsStoreLoggingTests : IDisposable
             loaded = store.Load();
         }
 
+        // Assert
         Assert.Equal(expected.Version, loaded.Version);
         Assert.Equal(expected.MinIntervalMs, loaded.MinIntervalMs);
         Assert.Equal(expected.MaxIntervalMs, loaded.MaxIntervalMs);
@@ -137,6 +151,9 @@ public sealed class SettingsStoreLoggingTests : IDisposable
         Assert.Equal(expected.MovementSpeed, loaded.MovementSpeed);
         Assert.NotNull(loaded.Pattern);
         Assert.Equal(expected.Pattern!, loaded.Pattern);
+        Assert.Equal(expected.Theme, loaded.Theme);
+        Assert.Equal(expected.StartDelaySeconds, loaded.StartDelaySeconds);
+        Assert.Equal(expected.AlwaysOnTop, loaded.AlwaysOnTop);
 
         string logContents = ReadCombinedLogs(logDir);
         Assert.Contains("[INF]", logContents, StringComparison.Ordinal);
@@ -149,6 +166,7 @@ public sealed class SettingsStoreLoggingTests : IDisposable
     [Fact]
     public void Load_WhenLegacyJsonContainsWaylandHotkeyConfirmed_IgnoresObsoletePropertyCleanly()
     {
+        // Arrange
         string settingsPath = Path.Combine(_tempRoot, "settings.json");
         string logDir = Path.Combine(_tempRoot, "logs");
         File.WriteAllText(
@@ -171,6 +189,7 @@ public sealed class SettingsStoreLoggingTests : IDisposable
             }
             """);
 
+        // Act
         AppSettings loaded;
         using (var serilogLogger = AppLogging.CreateLogger(
                    logDir,
@@ -183,9 +202,13 @@ public sealed class SettingsStoreLoggingTests : IDisposable
             loaded = store.Load();
         }
 
+        // Assert
         Assert.Equal(300, loaded.MinIntervalMs);
         Assert.Equal(500, loaded.MaxIntervalMs);
         Assert.Single(loaded.Pattern!);
+        Assert.Equal(ThemePreference.System, loaded.Theme);
+        Assert.Equal(0, loaded.StartDelaySeconds);
+        Assert.False(loaded.AlwaysOnTop);
 
         string logContents = ReadCombinedLogs(logDir);
         Assert.DoesNotContain("[WRN]", logContents, StringComparison.Ordinal);

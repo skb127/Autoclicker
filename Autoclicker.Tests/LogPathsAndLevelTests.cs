@@ -14,11 +14,14 @@ public sealed class LogPathsAndLevelTests
     [Fact]
     public void ResolveXdgStateHome_WhenFullyQualified_ReturnsEnvVarValue()
     {
+        // Arrange
         string expected = Path.Combine(Path.GetTempPath(), "custom-xdg-state");
         string userProfile = Path.Combine(Path.GetTempPath(), "fake-home");
 
+        // Act
         string resolved = LogPaths.ResolveXdgStateHome(expected, userProfile);
 
+        // Assert
         Assert.Equal(expected, resolved);
     }
 
@@ -29,11 +32,14 @@ public sealed class LogPathsAndLevelTests
     [InlineData("relative/state/path")]
     public void ResolveXdgStateHome_WhenMissingOrRelative_FallsBackToDotLocalState(string? xdgStateHome)
     {
+        // Arrange
         string userProfile = Path.Combine(Path.GetTempPath(), "fake-home");
         string expected = Path.Combine(userProfile, ".local", "state");
 
+        // Act
         string resolved = LogPaths.ResolveXdgStateHome(xdgStateHome, userProfile);
 
+        // Assert
         Assert.Equal(expected, resolved);
     }
 
@@ -53,14 +59,20 @@ public sealed class LogPathsAndLevelTests
     [InlineData("invalid-level", LogEventLevel.Information)]
     public void ParseMinimumLevel_ResolvesExpectedSerilogLevel(string? rawLevel, LogEventLevel expected)
     {
-        LogEventLevel parsed = AppLogging.ParseMinimumLevel(rawLevel);
+        // Arrange
+        string? input = rawLevel;
 
+        // Act
+        LogEventLevel parsed = AppLogging.ParseMinimumLevel(input);
+
+        // Assert
         Assert.Equal(expected, parsed);
     }
 
     [Fact]
     public void AvaloniaSerilogSink_StripsEmbeddedNullCharactersFromTemplateAndStringProperties()
     {
+        // Arrange
         var captured = new List<LogEvent>();
         using var serilogLogger = new LoggerConfiguration()
             .MinimumLevel.Verbose()
@@ -68,14 +80,15 @@ public sealed class LogPathsAndLevelTests
             .CreateLogger();
 
         var sink = new AvaloniaSerilogSink(AvaloniaLogEventLevel.Warning, serilogLogger);
+        object?[] propertyValues = ["SESSION_MANAGER\0\0\0", 42];
 
+        // Act
         sink.Log(
             AvaloniaLogEventLevel.Warning,
             "X11Platform",
             source: null,
             "SMLib error:\0\0 fixed buffer\0");
 
-        object?[] propertyValues = ["SESSION_MANAGER\0\0\0", 42];
         sink.Log(
             AvaloniaLogEventLevel.Error,
             "X11Platform",
@@ -83,6 +96,7 @@ public sealed class LogPathsAndLevelTests
             "Native\0 failure: {Reason} (code {Code})\0",
             propertyValues);
 
+        // Assert
         Assert.Equal(2, captured.Count);
         Assert.Equal("SMLib error: fixed buffer", captured[0].MessageTemplate.Text);
         Assert.Equal("SMLib error: fixed buffer", captured[0].RenderMessage());
